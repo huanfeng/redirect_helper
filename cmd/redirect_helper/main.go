@@ -31,10 +31,9 @@ func main() {
 		listDomains  = flag.Bool("list-domains", false, "List all domain mappings")
 		removeDomain = flag.String("remove-domain", "", "Remove a domain mapping")
 		updateDomain = flag.String("update-domain", "", "Update target for a domain mapping")
-		
+
 		// Admin token management flags
-		setAdminToken = flag.String("set-admin-token", "", "Set admin token for API authentication")
-		showAdminToken = flag.Bool("show-admin-token", false, "Show current admin token")
+		resetAdminToken = flag.Bool("reset-admin-token", false, "Reset admin token for API authentication")
 	)
 	flag.Parse()
 
@@ -91,13 +90,8 @@ func main() {
 	}
 
 	// Admin token management commands
-	if *setAdminToken != "" {
-		setAdminTokenCmd(*setAdminToken, store)
-		return
-	}
-
-	if *showAdminToken {
-		showAdminTokenCmd(store)
+	if *resetAdminToken {
+		resetAdminTokenCmd(store)
 		return
 	}
 
@@ -173,21 +167,21 @@ func startServer(port string, store *storage.ConfigStorage, cfg *config.Config) 
 	if port == "8001" && cfg.Server != nil && cfg.Server.Port != "" {
 		actualPort = cfg.Server.Port
 	}
-	
+
 	srv := server.NewServer(store)
 	fmt.Printf("Starting server on port %s...\n", actualPort)
-	
+
 	// 在后台启动服务器
 	go func() {
 		if err := srv.Start(":" + actualPort); err != nil {
 			log.Fatalf("Server failed to start: %v", err)
 		}
 	}()
-	
+
 	// 等待服务器启动
 	fmt.Printf("Server started on port %s\n", actualPort)
 	fmt.Printf("Press Enter to access settings menu...\n")
-	
+
 	// 交互式菜单
 	runInteractiveMenu(store, cfg)
 }
@@ -252,39 +246,29 @@ func updateDomainMapping(domain, target string, store *storage.ConfigStorage) {
 }
 
 // Admin token management functions
-func setAdminTokenCmd(token string, store *storage.ConfigStorage) {
-	if len(token) < 16 {
-		log.Fatal("Admin token must be at least 16 characters long")
+func resetAdminTokenCmd(store *storage.ConfigStorage) {
+	token, err := utils.GenerateToken(32)
+	if err != nil {
+		log.Fatalf("Failed to generate token: %v", err)
 	}
 
-	err := store.SetAdminToken(token)
+	err = store.SetAdminToken(token)
 	if err != nil {
 		log.Fatalf("Failed to set admin token: %v", err)
 	}
 
-	fmt.Printf("Admin token set successfully\n")
-	fmt.Printf("Use this token for API authentication: %s\n", token)
-}
-
-func showAdminTokenCmd(store *storage.ConfigStorage) {
-	token := store.GetAdminToken()
-	if token == "" {
-		fmt.Println("No admin token is set")
-		fmt.Println("Use -set-admin-token to set one")
-		return
-	}
-
-	fmt.Printf("Current admin token: %s\n", token)
+	fmt.Printf("Admin token reset successfully\n")
+	fmt.Printf("New admin token: %s\n", token)
 }
 
 // Interactive menu system
 func runInteractiveMenu(store *storage.ConfigStorage, cfg *config.Config) {
 	scanner := bufio.NewScanner(os.Stdin)
-	
+
+	// 等待用户按回车键进入菜单
+	scanner.Scan()
+
 	for {
-		// 等待用户按回车键
-		scanner.Scan()
-		
 		// 显示主菜单
 		fmt.Println("\n" + strings.Repeat("=", 50))
 		fmt.Println("🔄 Redirect Helper - Interactive Menu")
@@ -294,13 +278,13 @@ func runInteractiveMenu(store *storage.ConfigStorage, cfg *config.Config) {
 		fmt.Println("3. Domains")
 		fmt.Println("q. Quit")
 		fmt.Print("Select option: ")
-		
+
 		if !scanner.Scan() {
 			break
 		}
-		
+
 		choice := strings.TrimSpace(scanner.Text())
-		
+
 		switch choice {
 		case "1":
 			settingsMenu(store, cfg, scanner)
@@ -320,21 +304,20 @@ func runInteractiveMenu(store *storage.ConfigStorage, cfg *config.Config) {
 func settingsMenu(store *storage.ConfigStorage, cfg *config.Config, scanner *bufio.Scanner) {
 	for {
 		fmt.Println("\n" + strings.Repeat("-", 40))
-		fmt.Println("⚙️  Settings Menu")
+		fmt.Println("⚙️  Settings")
 		fmt.Println(strings.Repeat("-", 40))
-		fmt.Println("1. View current settings")
-		fmt.Println("2. Change server port")
-		fmt.Println("3. Generate new admin token")
-		fmt.Println("4. Show admin token")
-		fmt.Println("b. Back to main menu")
+		fmt.Println("1. View")
+		fmt.Println("2. Change port")
+		fmt.Println("3. Reset admin token")
+		fmt.Println("b. Back")
 		fmt.Print("Select option: ")
-		
+
 		if !scanner.Scan() {
 			break
 		}
-		
+
 		choice := strings.TrimSpace(scanner.Text())
-		
+
 		switch choice {
 		case "1":
 			viewSettings(cfg)
@@ -342,9 +325,8 @@ func settingsMenu(store *storage.ConfigStorage, cfg *config.Config, scanner *buf
 			changePort(store, cfg, scanner)
 		case "3":
 			generateAdminToken(store, scanner)
-		case "4":
-			fmt.Printf("Current admin token: %s\n", store.GetAdminToken())
 		case "b", "B":
+			fmt.Println("") // 添加一个空行，然后直接返回到主菜单
 			return
 		default:
 			fmt.Println("Invalid option. Please try again.")
@@ -355,21 +337,21 @@ func settingsMenu(store *storage.ConfigStorage, cfg *config.Config, scanner *buf
 func forwardingsMenu(store *storage.ConfigStorage, scanner *bufio.Scanner) {
 	for {
 		fmt.Println("\n" + strings.Repeat("-", 40))
-		fmt.Println("🔗 Forwardings Menu")
+		fmt.Println("🔗 Forwardings")
 		fmt.Println(strings.Repeat("-", 40))
-		fmt.Println("1. List all forwardings")
-		fmt.Println("2. Create forwarding")
-		fmt.Println("3. Update forwarding target")
-		fmt.Println("4. Remove forwarding")
-		fmt.Println("b. Back to main menu")
+		fmt.Println("1. List")
+		fmt.Println("2. Create")
+		fmt.Println("3. Update")
+		fmt.Println("4. Remove")
+		fmt.Println("b. Back")
 		fmt.Print("Select option: ")
-		
+
 		if !scanner.Scan() {
 			break
 		}
-		
+
 		choice := strings.TrimSpace(scanner.Text())
-		
+
 		switch choice {
 		case "1":
 			listForwardingsInteractive(store)
@@ -380,6 +362,7 @@ func forwardingsMenu(store *storage.ConfigStorage, scanner *bufio.Scanner) {
 		case "4":
 			removeForwardingInteractive(store, scanner)
 		case "b", "B":
+			fmt.Println("") // 添加一个空行，然后直接返回到主菜单
 			return
 		default:
 			fmt.Println("Invalid option. Please try again.")
@@ -390,21 +373,21 @@ func forwardingsMenu(store *storage.ConfigStorage, scanner *bufio.Scanner) {
 func domainsMenu(store *storage.ConfigStorage, scanner *bufio.Scanner) {
 	for {
 		fmt.Println("\n" + strings.Repeat("-", 40))
-		fmt.Println("🌐 Domains Menu")
+		fmt.Println("🌐 Domains")
 		fmt.Println(strings.Repeat("-", 40))
-		fmt.Println("1. List all domains")
-		fmt.Println("2. Create domain")
-		fmt.Println("3. Update domain target")
-		fmt.Println("4. Remove domain")
-		fmt.Println("b. Back to main menu")
+		fmt.Println("1. List")
+		fmt.Println("2. Create")
+		fmt.Println("3. Update")
+		fmt.Println("4. Remove")
+		fmt.Println("b. Back")
 		fmt.Print("Select option: ")
-		
+
 		if !scanner.Scan() {
 			break
 		}
-		
+
 		choice := strings.TrimSpace(scanner.Text())
-		
+
 		switch choice {
 		case "1":
 			listDomainsInteractive(store)
@@ -415,6 +398,7 @@ func domainsMenu(store *storage.ConfigStorage, scanner *bufio.Scanner) {
 		case "4":
 			removeDomainInteractive(store, scanner)
 		case "b", "B":
+			fmt.Println("") // 添加一个空行，然后直接返回到主菜单
 			return
 		default:
 			fmt.Println("Invalid option. Please try again.")
@@ -439,29 +423,29 @@ func viewSettings(cfg *config.Config) {
 func changePort(store *storage.ConfigStorage, cfg *config.Config, scanner *bufio.Scanner) {
 	fmt.Printf("Current port: %s\n", cfg.Server.Port)
 	fmt.Print("Enter new port: ")
-	
+
 	if !scanner.Scan() {
 		return
 	}
-	
+
 	newPort := strings.TrimSpace(scanner.Text())
 	if newPort == "" {
 		fmt.Println("Port cannot be empty")
 		return
 	}
-	
+
 	// 验证端口号
 	if port, err := strconv.Atoi(newPort); err != nil || port < 1 || port > 65535 {
 		fmt.Println("Invalid port number. Must be between 1 and 65535")
 		return
 	}
-	
+
 	cfg.Server.Port = newPort
 	if err := cfg.Save(); err != nil {
 		fmt.Printf("Failed to save config: %v\n", err)
 		return
 	}
-	
+
 	fmt.Printf("Port changed to %s. Restart server to apply changes.\n", newPort)
 }
 
@@ -471,12 +455,12 @@ func generateAdminToken(store *storage.ConfigStorage, scanner *bufio.Scanner) {
 		fmt.Printf("Failed to generate token: %v\n", err)
 		return
 	}
-	
+
 	if err := store.SetAdminToken(token); err != nil {
 		fmt.Printf("Failed to set admin token: %v\n", err)
 		return
 	}
-	
+
 	fmt.Printf("New admin token generated: %s\n", token)
 }
 
@@ -487,15 +471,15 @@ func listForwardingsInteractive(store *storage.ConfigStorage) {
 		fmt.Printf("Failed to list forwardings: %v\n", err)
 		return
 	}
-	
+
 	if len(forwardings) == 0 {
 		fmt.Println("No forwardings found")
 		return
 	}
-	
+
 	fmt.Println("\n📋 Current Forwardings:")
 	for i, f := range forwardings {
-		fmt.Printf("%d. Name: %s, Target: %s, Created: %s\n", 
+		fmt.Printf("%d. Name: %s, Target: %s, Created: %s\n",
 			i+1, f.Name, f.Target, f.CreatedAt.Format("2006-01-02 15:04:05"))
 	}
 }
@@ -505,24 +489,24 @@ func createForwardingInteractive(store *storage.ConfigStorage, scanner *bufio.Sc
 	if !scanner.Scan() {
 		return
 	}
-	
+
 	name := strings.TrimSpace(scanner.Text())
 	if name == "" {
 		fmt.Println("Name cannot be empty")
 		return
 	}
-	
+
 	token, err := utils.GenerateToken(32)
 	if err != nil {
 		fmt.Printf("Failed to generate token: %v\n", err)
 		return
 	}
-	
+
 	if err := store.CreateForwarding(name, token); err != nil {
 		fmt.Printf("Failed to create forwarding: %v\n", err)
 		return
 	}
-	
+
 	fmt.Printf("Forwarding '%s' created successfully\n", name)
 	fmt.Printf("Token: %s\n", token)
 }
@@ -532,29 +516,29 @@ func updateForwardingInteractive(store *storage.ConfigStorage, scanner *bufio.Sc
 	if !scanner.Scan() {
 		return
 	}
-	
+
 	name := strings.TrimSpace(scanner.Text())
 	if name == "" {
 		fmt.Println("Name cannot be empty")
 		return
 	}
-	
+
 	fmt.Print("Enter new target: ")
 	if !scanner.Scan() {
 		return
 	}
-	
+
 	target := strings.TrimSpace(scanner.Text())
 	if target == "" {
 		fmt.Println("Target cannot be empty")
 		return
 	}
-	
+
 	if err := store.UpdateTarget(name, target); err != nil {
 		fmt.Printf("Failed to update forwarding: %v\n", err)
 		return
 	}
-	
+
 	fmt.Printf("Forwarding '%s' updated successfully with target: %s\n", name, target)
 }
 
@@ -563,18 +547,18 @@ func removeForwardingInteractive(store *storage.ConfigStorage, scanner *bufio.Sc
 	if !scanner.Scan() {
 		return
 	}
-	
+
 	name := strings.TrimSpace(scanner.Text())
 	if name == "" {
 		fmt.Println("Name cannot be empty")
 		return
 	}
-	
+
 	if err := store.RemoveForwarding(name); err != nil {
 		fmt.Printf("Failed to remove forwarding: %v\n", err)
 		return
 	}
-	
+
 	fmt.Printf("Forwarding '%s' removed successfully\n", name)
 }
 
@@ -585,15 +569,15 @@ func listDomainsInteractive(store *storage.ConfigStorage) {
 		fmt.Printf("Failed to list domains: %v\n", err)
 		return
 	}
-	
+
 	if len(domains) == 0 {
 		fmt.Println("No domains found")
 		return
 	}
-	
+
 	fmt.Println("\n📋 Current Domains:")
 	for i, d := range domains {
-		fmt.Printf("%d. Domain: %s, Target: %s, Created: %s\n", 
+		fmt.Printf("%d. Domain: %s, Target: %s, Created: %s\n",
 			i+1, d.Domain, d.Target, d.CreatedAt.Format("2006-01-02 15:04:05"))
 	}
 }
@@ -603,24 +587,24 @@ func createDomainInteractive(store *storage.ConfigStorage, scanner *bufio.Scanne
 	if !scanner.Scan() {
 		return
 	}
-	
+
 	domain := strings.TrimSpace(scanner.Text())
 	if domain == "" {
 		fmt.Println("Domain cannot be empty")
 		return
 	}
-	
+
 	token, err := utils.GenerateToken(32)
 	if err != nil {
 		fmt.Printf("Failed to generate token: %v\n", err)
 		return
 	}
-	
+
 	if err := store.CreateDomain(domain, token); err != nil {
 		fmt.Printf("Failed to create domain: %v\n", err)
 		return
 	}
-	
+
 	fmt.Printf("Domain '%s' created successfully\n", domain)
 	fmt.Printf("Token: %s\n", token)
 }
@@ -630,29 +614,29 @@ func updateDomainInteractive(store *storage.ConfigStorage, scanner *bufio.Scanne
 	if !scanner.Scan() {
 		return
 	}
-	
+
 	domain := strings.TrimSpace(scanner.Text())
 	if domain == "" {
 		fmt.Println("Domain cannot be empty")
 		return
 	}
-	
+
 	fmt.Print("Enter new target: ")
 	if !scanner.Scan() {
 		return
 	}
-	
+
 	target := strings.TrimSpace(scanner.Text())
 	if target == "" {
 		fmt.Println("Target cannot be empty")
 		return
 	}
-	
+
 	if err := store.UpdateDomainTarget(domain, target); err != nil {
 		fmt.Printf("Failed to update domain: %v\n", err)
 		return
 	}
-	
+
 	fmt.Printf("Domain '%s' updated successfully with target: %s\n", domain, target)
 }
 
@@ -661,17 +645,17 @@ func removeDomainInteractive(store *storage.ConfigStorage, scanner *bufio.Scanne
 	if !scanner.Scan() {
 		return
 	}
-	
+
 	domain := strings.TrimSpace(scanner.Text())
 	if domain == "" {
 		fmt.Println("Domain cannot be empty")
 		return
 	}
-	
+
 	if err := store.RemoveDomain(domain); err != nil {
 		fmt.Printf("Failed to remove domain: %v\n", err)
 		return
 	}
-	
+
 	fmt.Printf("Domain '%s' removed successfully\n", domain)
 }
