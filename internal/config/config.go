@@ -10,6 +10,7 @@ import (
 type Config struct {
 	Forwardings map[string]*ForwardingConfig `json:"forwardings"`
 	Domains     map[string]*DomainConfig     `json:"domains"`
+	Server      *ServerConfig                `json:"server"`
 }
 
 type ForwardingConfig struct {
@@ -28,10 +29,19 @@ type DomainConfig struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+type ServerConfig struct {
+	Port       string `json:"port"`
+	AdminToken string `json:"admin_token"`
+}
+
 func NewConfig() *Config {
 	return &Config{
 		Forwardings: make(map[string]*ForwardingConfig),
 		Domains:     make(map[string]*DomainConfig),
+		Server: &ServerConfig{
+			Port:       "8001",
+			AdminToken: "",
+		},
 	}
 }
 
@@ -252,4 +262,28 @@ func (c *Config) UpdateDomainTarget(domain, target string) error {
 	domainConfig.UpdatedAt = time.Now()
 
 	return c.Save()
+}
+
+// Admin token management
+func (c *Config) SetAdminToken(token string) error {
+	if c.Server == nil {
+		c.Server = &ServerConfig{
+			Port:       "8001",
+			AdminToken: "",
+		}
+	}
+	c.Server.AdminToken = token
+	return c.Save()
+}
+
+func (c *Config) GetAdminToken() string {
+	if c.Server == nil {
+		return ""
+	}
+	return c.Server.AdminToken
+}
+
+func (c *Config) ValidateAdminToken(token string) bool {
+	adminToken := c.GetAdminToken()
+	return adminToken != "" && adminToken == token
 }

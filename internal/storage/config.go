@@ -119,3 +119,16 @@ func (s *ConfigStorage) RemoveDomain(domain string) error {
 func (s *ConfigStorage) UpdateDomainTarget(domain, target string) error {
 	return s.config.UpdateDomainTarget(domain, target)
 }
+
+// Admin token validation
+func (s *ConfigStorage) ValidateAdminToken(token string) bool {
+	return s.config.ValidateAdminToken(token)
+}
+
+func (s *ConfigStorage) SetAdminToken(token string) error {
+	return s.config.SetAdminToken(token)
+}
+
+func (s *ConfigStorage) GetAdminToken() string {
+	return s.config.GetAdminToken()
+}

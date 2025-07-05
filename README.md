@@ -207,7 +207,7 @@ curl "http://localhost:8001/api/set-domain?domain=abc.mydomain.com&token=a01b531
     }
   },
   "server": {
-    "port": "8080"
+    "port": "8001"
   }
 }
 ```
@@ -270,7 +270,7 @@ curl "http://localhost:8001/api/set-domain?domain=abc.mydomain.com&token=a01b531
 ```nginx
 # nginx.conf
 upstream redirect_helper {
-    server 127.0.0.1:8080;
+    server 127.0.0.1:8001;
 }
 
 server {
@@ -317,7 +317,7 @@ RUN apk --no-cache add ca-certificates
 WORKDIR /root/
 COPY --from=builder /app/redirect_helper .
 COPY --from=builder /app/redirect_helper.json .
-EXPOSE 8080
+EXPOSE 8001
 CMD ["./redirect_helper", "-server", "-config", "./redirect_helper.json"]
 ```
 
@@ -328,7 +328,7 @@ services:
   redirect_helper:
     build: .
     ports:
-      - "8080:8080"
+      - "8001:8001"
     volumes:
       - ./redirect_helper.json:/root/redirect_helper.json
     restart: unless-stopped

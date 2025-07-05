@@ -20,6 +20,14 @@ type DomainEntry struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// DomainEntryPublic 公开的域名信息，不包含敏感token
+type DomainEntryPublic struct {
+	Domain    string    `json:"domain"`
+	Target    string    `json:"target"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 type Response struct {
 	State   string `json:"state"`
 	Message string `json:"message,omitempty"`

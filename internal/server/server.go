@@ -14,6 +14,7 @@ import (
 type Server struct {
 	storage       storage.Storage
 	domainStorage storage.DomainStorage
+	configStorage *storage.ConfigStorage
 	mux           *http.ServeMux
 }
 
@@ -22,12 +23,10 @@ func NewServer(store interface{}) *Server {
 		mux: http.NewServeMux(),
 	}
 
-	if storage, ok := store.(storage.Storage); ok {
-		s.storage = storage
-	}
-
-	if domainStorage, ok := store.(storage.DomainStorage); ok {
-		s.domainStorage = domainStorage
+	if configStorage, ok := store.(*storage.ConfigStorage); ok {
+		s.configStorage = configStorage
+		s.storage = configStorage
+		s.domainStorage = configStorage
 	}
 
 	s.setupRoutes()
@@ -134,12 +133,42 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 <html>
 <head>
     <title>Redirect Helper</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        .api-section { margin: 20px 0; padding: 15px; background: #f5f5f5; border-radius: 5px; }
+        code { background: #e8e8e8; padding: 2px 4px; border-radius: 3px; }
+        .warning { color: #d63384; font-weight: bold; }
+    </style>
 </head>
 <body>
-    <h1>Redirect Helper Service</h1>
-    <p>Use the following format to access forwarding:</p>
-    <p><code>/go/&lt;name&gt;</code> - Redirect to configured target</p>
-    <p><code>/api/set?name=&lt;name&gt;&token=&lt;token&gt;&target=&lt;target&gt;</code> - Set target for forwarding</p>
+    <h1>🔄 Redirect Helper Service</h1>
+    <p>支持两种跳转模式：传统跳转和域名跳转</p>
+    
+    <div class="api-section">
+        <h2>🔗 传统跳转模式</h2>
+        <p><strong>访问跳转:</strong> <code>/go/&lt;name&gt;</code></p>
+        <p><strong>设置目标:</strong> <code>/api/set?name=&lt;name&gt;&token=&lt;token&gt;&target=&lt;target&gt;</code></p>
+    </div>
+    
+    <div class="api-section">
+        <h2>🌐 域名跳转模式</h2>
+        <p><strong>访问跳转:</strong> 直接访问配置的域名，完整保持URL路径和参数</p>
+        <p><strong>设置目标:</strong> <code>/api/set-domain?domain=&lt;domain&gt;&token=&lt;token&gt;&target=&lt;target&gt;</code></p>
+        <p><strong>列出域名:</strong> <code>/api/list-domains?admin_token=&lt;admin_token&gt;</code></p>
+        <p class="warning">⚠️ 需要管理员token才能列出域名</p>
+    </div>
+    
+    <div class="api-section">
+        <h2>📋 管理功能</h2>
+        <p>使用命令行工具进行管理：</p>
+        <ul>
+            <li><code>./redirect_helper -create &lt;name&gt;</code> - 创建传统跳转</li>
+            <li><code>./redirect_helper -create-domain &lt;domain&gt;</code> - 创建域名跳转</li>
+            <li><code>./redirect_helper -list</code> - 列出所有传统跳转</li>
+            <li><code>./redirect_helper -list-domains</code> - 列出所有域名跳转</li>
+            <li><code>./redirect_helper -set-admin-token &lt;token&gt;</code> - 设置管理员token</li>
+        </ul>
+    </div>
 </body>
 </html>
 `
@@ -222,6 +251,13 @@ func (s *Server) handleSetDomainTarget(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) validateAdminToken(token string) bool {
+	if s.configStorage == nil {
+		return false
+	}
+	return s.configStorage.ValidateAdminToken(token)
+}
+
 func (s *Server) handleListDomains(w http.ResponseWriter, r *http.Request) {
 	// 先检查是否为域名跳转
 	if s.checkDomainRedirect(w, r) {
@@ -232,6 +268,16 @@ func (s *Server) handleListDomains(w http.ResponseWriter, r *http.Request) {
 		s.writeJSONResponse(w, http.StatusMethodNotAllowed, models.Response{
 			State:   "error",
 			Message: "Method not allowed",
+		})
+		return
+	}
+
+	// 检查管理员认证
+	adminToken := r.URL.Query().Get("admin_token")
+	if !s.validateAdminToken(adminToken) {
+		s.writeJSONResponse(w, http.StatusUnauthorized, models.Response{
+			State:   "error",
+			Message: "Unauthorized access. Admin token required.",
 		})
 		return
 	}
@@ -253,10 +299,21 @@ func (s *Server) handleListDomains(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 转换为公开信息，隐藏敏感token
+	publicDomains := make([]*models.DomainEntryPublic, len(domains))
+	for i, domain := range domains {
+		publicDomains[i] = &models.DomainEntryPublic{
+			Domain:    domain.Domain,
+			Target:    domain.Target,
+			CreatedAt: domain.CreatedAt,
+			UpdatedAt: domain.UpdatedAt,
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"state":   "success",
-		"domains": domains,
+		"domains": publicDomains,
 	})
 }
 
