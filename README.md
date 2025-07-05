@@ -65,7 +65,7 @@ Name: abc, Target: 192.168.1.100:8080, Created: 2025-07-05 10:28:49
 #### 5. 通过API设置跳转目标
 
 ```bash
-curl "http://localhost:8080/api/set?name=abc&token=9d3ee6a4cac9f5d3bed00cd12987fb6d&target=1.1.1.1:12345"
+curl "http://localhost:8001/api/set?name=abc&token=9d3ee6a4cac9f5d3bed00cd12987fb6d&target=1.1.1.1:12345"
 ```
 
 成功响应：
@@ -78,7 +78,7 @@ curl "http://localhost:8080/api/set?name=abc&token=9d3ee6a4cac9f5d3bed00cd12987f
 访问以下URL将跳转到设置的目标：
 
 ```
-http://localhost:8080/go/abc
+http://localhost:8001/go/abc
 ```
 
 将重定向到: `http://1.1.1.1:12345`
@@ -129,7 +129,7 @@ Domain: abc.mydomain.com, Target: https://file.example.com:12345, Created: 2025-
 #### 5. 通过API设置域名目标
 
 ```bash
-curl "http://localhost:8080/api/set-domain?domain=abc.mydomain.com&token=a01b531a0a17c66bb4c3731b64697613&target=https://file.example.com:12345"
+curl "http://localhost:8001/api/set-domain?domain=abc.mydomain.com&token=a01b531a0a17c66bb4c3731b64697613&target=https://file.example.com:12345"
 ```
 
 成功响应：
@@ -152,7 +152,7 @@ curl "http://localhost:8080/api/set-domain?domain=abc.mydomain.com&token=a01b531
 ### 服务器启动
 
 ```bash
-# 启动服务器（默认端口8080）
+# 启动服务器（默认端口8001）
 ./redirect_helper -server
 
 # 指定端口
@@ -179,7 +179,7 @@ curl "http://localhost:8080/api/set-domain?domain=abc.mydomain.com&token=a01b531
 ### 通用参数
 - `-target <target>`: 指定新的目标地址
 - `-server`: 启动HTTP服务器
-- `-port <port>`: 指定服务器端口（默认8080）
+- `-port <port>`: 指定服务器端口（默认8001）
 - `-config <path>`: 指定配置文件路径（默认./redirect_helper.json）
 
 ## 配置文件
@@ -242,7 +242,7 @@ curl "http://localhost:8080/api/set-domain?domain=abc.mydomain.com&token=a01b531
 #### 列出域名映射
 - **URL**: `/api/list-domains`
 - **方法**: `GET`
-- **响应**: 
+- **响应**:
 ```json
 {
   "state": "success",
@@ -276,7 +276,7 @@ upstream redirect_helper {
 server {
     listen 80;
     server_name *.mydomain.com;
-    
+
     location / {
         proxy_pass http://redirect_helper;
         proxy_set_header Host $host;
@@ -289,10 +289,10 @@ server {
 server {
     listen 443 ssl;
     server_name *.mydomain.com;
-    
+
     ssl_certificate /path/to/cert.pem;
     ssl_certificate_key /path/to/key.pem;
-    
+
     location / {
         proxy_pass http://redirect_helper;
         proxy_set_header Host $host;
