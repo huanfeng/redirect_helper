@@ -10,7 +10,6 @@ import (
 type Config struct {
 	Forwardings map[string]*ForwardingConfig `json:"forwardings"`
 	Domains     map[string]*DomainConfig     `json:"domains"`
-	Server      *ServerConfig                `json:"server"`
 }
 
 type ForwardingConfig struct {
@@ -29,17 +28,10 @@ type DomainConfig struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-type ServerConfig struct {
-	Port string `json:"port"`
-}
-
 func NewConfig() *Config {
 	return &Config{
 		Forwardings: make(map[string]*ForwardingConfig),
 		Domains:     make(map[string]*DomainConfig),
-		Server: &ServerConfig{
-			Port: "8080",
-		},
 	}
 }
 
@@ -58,7 +50,7 @@ func GetConfigPath() string {
 
 func LoadConfig() (*Config, error) {
 	configPath := GetConfigPath()
-	
+
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		config := NewConfig()
 		if err := config.Save(); err != nil {
@@ -82,7 +74,7 @@ func LoadConfig() (*Config, error) {
 
 func (c *Config) Save() error {
 	configPath := GetConfigPath()
-	
+
 	data, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal config: %v", err)
