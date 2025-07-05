@@ -48,6 +48,11 @@ func (s *Server) setupRoutes() {
 }
 
 func (s *Server) handleSetTarget(w http.ResponseWriter, r *http.Request) {
+	// 先检查是否为域名跳转
+	if s.checkDomainRedirect(w, r) {
+		return
+	}
+
 	if r.Method != http.MethodGet {
 		s.writeJSONResponse(w, http.StatusMethodNotAllowed, models.Response{
 			State:   "error",
@@ -91,6 +96,11 @@ func (s *Server) handleSetTarget(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRedirect(w http.ResponseWriter, r *http.Request) {
+	// 先检查是否为域名跳转
+	if s.checkDomainRedirect(w, r) {
+		return
+	}
+
 	// 从URL路径中提取名称，路径格式为 /go/name
 	name := strings.TrimPrefix(r.URL.Path, "/go/")
 
@@ -157,6 +167,11 @@ func (s *Server) isValidTarget(target string) bool {
 }
 
 func (s *Server) handleSetDomainTarget(w http.ResponseWriter, r *http.Request) {
+	// 先检查是否为域名跳转
+	if s.checkDomainRedirect(w, r) {
+		return
+	}
+
 	if r.Method != http.MethodGet {
 		s.writeJSONResponse(w, http.StatusMethodNotAllowed, models.Response{
 			State:   "error",
@@ -208,6 +223,11 @@ func (s *Server) handleSetDomainTarget(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListDomains(w http.ResponseWriter, r *http.Request) {
+	// 先检查是否为域名跳转
+	if s.checkDomainRedirect(w, r) {
+		return
+	}
+
 	if r.Method != http.MethodGet {
 		s.writeJSONResponse(w, http.StatusMethodNotAllowed, models.Response{
 			State:   "error",
@@ -278,6 +298,30 @@ func (s *Server) handleDomainProxy(w http.ResponseWriter, r *http.Request, targe
 
 	// 使用HTTP重定向而不是反向代理
 	http.Redirect(w, r, target.String(), http.StatusFound)
+}
+
+// checkDomainRedirect 检查是否应该进行域名跳转
+// 如果找到域名映射，执行跳转并返回 true
+// 如果没有找到域名映射，返回 false 继续正常处理
+func (s *Server) checkDomainRedirect(w http.ResponseWriter, r *http.Request) bool {
+	if s.domainStorage == nil {
+		return false
+	}
+
+	host := r.Host
+	// Remove port from host if present
+	if colonIndex := strings.Index(host, ":"); colonIndex != -1 {
+		host = host[:colonIndex]
+	}
+
+	target, err := s.domainStorage.GetDomainTarget(host)
+	if err != nil || target == "" {
+		return false
+	}
+
+	// 找到域名映射，执行跳转
+	s.handleDomainProxy(w, r, target)
+	return true
 }
 
 func (s *Server) Start(addr string) error {
