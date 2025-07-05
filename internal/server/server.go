@@ -135,11 +135,12 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/html")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	html := `
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="UTF-8">
     <title>Redirect Helper</title>
     <style>
         body { font-family: Arial, sans-serif; max-width: 700px; margin: 0 auto; padding: 20px; }
