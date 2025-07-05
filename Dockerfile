@@ -21,7 +21,7 @@ FROM alpine:latest
 # Install ca-certificates for HTTPS requests
 RUN apk --no-cache add ca-certificates
 
-WORKDIR /root/
+WORKDIR /app/
 
 # Copy the binary from builder stage
 COPY --from=builder /app/redirect_helper .
@@ -30,4 +30,4 @@ COPY --from=builder /app/redirect_helper .
 EXPOSE 8001
 
 # Run the binary
-CMD ["./redirect_helper", "-server"]
+CMD ["./redirect_helper", "-server", "-config", "./config/redirect_helper.json"]
