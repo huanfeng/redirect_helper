@@ -156,14 +156,41 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
     <style>
         body { font-family: Arial, sans-serif; max-width: 700px; margin: 0 auto; padding: 20px; }
         .api-section { margin: 20px 0; padding: 15px; background: #f5f5f5; border-radius: 5px; }
+        .admin-section { margin: 20px 0; padding: 15px; background: #e8f4f8; border-radius: 5px; border-left: 4px solid #0066cc; }
         code { background: #e8e8e8; padding: 2px 4px; border-radius: 3px; font-size: 12px; }
         .warning { color: #d63384; font-weight: bold; margin-top: 10px; }
         .method { color: #0066cc; font-weight: bold; }
+        .form-group { margin: 10px 0; }
+        .form-group label { display: block; margin-bottom: 5px; font-weight: bold; }
+        .form-group input { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; }
+        .btn { padding: 10px 15px; margin: 5px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
+        .btn-primary { background: #0066cc; color: white; }
+        .btn-primary:hover { background: #0052a3; }
+        .btn-secondary { background: #6c757d; color: white; }
+        .btn-secondary:hover { background: #5a6268; }
+        .result { margin-top: 15px; padding: 10px; border-radius: 4px; display: none; }
+        .result.success { background: #d4edda; border: 1px solid #c3e6cb; color: #155724; }
+        .result.error { background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; }
+        .entries { margin-top: 10px; }
+        .entry { margin: 5px 0; padding: 8px; background: #f8f9fa; border-radius: 4px; }
+        .entry strong { color: #0066cc; }
+        .entry-time { color: #6c757d; font-size: 12px; }
     </style>
 </head>
 <body>
     <h1>🔄 Redirect Helper</h1>
     <p>Two redirect modes: path-based and domain-based</p>
+
+    <div class="admin-section">
+        <h2>🔑 Admin Management</h2>
+        <div class="form-group">
+            <label for="adminToken">Admin Token:</label>
+            <input type="text" id="adminToken" placeholder="Enter your admin token">
+        </div>
+        <button class="btn btn-primary" onclick="listRedirects()">List Redirects</button>
+        <button class="btn btn-secondary" onclick="listDomains()">List Domains</button>
+        <div id="result" class="result"></div>
+    </div>
 
     <div class="api-section">
         <h2>🔗 Path Redirects</h2>
@@ -184,6 +211,87 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
     <div class="warning">
         ⚠️ Management operations (list, remove) require admin token. Update operations require specific tokens.
     </div>
+
+    <script>
+        function showResult(message, isSuccess) {
+            const result = document.getElementById('result');
+            result.className = 'result ' + (isSuccess ? 'success' : 'error');
+            result.innerHTML = message;
+            result.style.display = 'block';
+        }
+
+        function formatDate(dateString) {
+            return new Date(dateString).toLocaleString();
+        }
+
+        function listRedirects() {
+            const adminToken = document.getElementById('adminToken').value;
+            if (!adminToken) {
+                showResult('Please enter admin token', false);
+                return;
+            }
+
+            fetch('/api/list?admin_token=' + encodeURIComponent(adminToken))
+                .then(response => response.json())
+                .then(data => {
+                    if (data.state === 'success') {
+                        let html = '<h3>📋 Path Redirects:</h3>';
+                        if (data.forwardings && data.forwardings.length > 0) {
+                            html += '<div class="entries">';
+                            data.forwardings.forEach(forwarding => {
+                                html += '<div class="entry">';
+                                html += '<strong>' + forwarding.name + '</strong> → ' + forwarding.target;
+                                html += '<div class="entry-time">Created: ' + formatDate(forwarding.created_at) + '</div>';
+                                html += '</div>';
+                            });
+                            html += '</div>';
+                        } else {
+                            html += '<p>No redirects found</p>';
+                        }
+                        showResult(html, true);
+                    } else {
+                        showResult('Error: ' + data.message, false);
+                    }
+                })
+                .catch(error => {
+                    showResult('Request failed: ' + error.message, false);
+                });
+        }
+
+        function listDomains() {
+            const adminToken = document.getElementById('adminToken').value;
+            if (!adminToken) {
+                showResult('Please enter admin token', false);
+                return;
+            }
+
+            fetch('/api/list-domains?admin_token=' + encodeURIComponent(adminToken))
+                .then(response => response.json())
+                .then(data => {
+                    if (data.state === 'success') {
+                        let html = '<h3>🌐 Domain Redirects:</h3>';
+                        if (data.domains && data.domains.length > 0) {
+                            html += '<div class="entries">';
+                            data.domains.forEach(domain => {
+                                html += '<div class="entry">';
+                                html += '<strong>' + domain.domain + '</strong> → ' + domain.target;
+                                html += '<div class="entry-time">Created: ' + formatDate(domain.created_at) + '</div>';
+                                html += '</div>';
+                            });
+                            html += '</div>';
+                        } else {
+                            html += '<p>No domain redirects found</p>';
+                        }
+                        showResult(html, true);
+                    } else {
+                        showResult('Error: ' + data.message, false);
+                    }
+                })
+                .catch(error => {
+                    showResult('Request failed: ' + error.message, false);
+                });
+        }
+    </script>
 </body>
 </html>
 `
