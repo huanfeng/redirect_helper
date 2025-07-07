@@ -3,9 +3,11 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"redirect_helper/internal/models"
 	"redirect_helper/internal/storage"
@@ -58,7 +60,18 @@ func (s *Server) handleUpdateSetTarget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	name := r.URL.Query().Get("name")
+	token := r.URL.Query().Get("token")
+	target := r.URL.Query().Get("target")
+
+	params := map[string]string{
+		"name":   name,
+		"token":  token,
+		"target": target,
+	}
+
 	if r.Method != http.MethodGet {
+		s.logAPIRequest(r, "/api/update", params, "method_not_allowed", http.StatusMethodNotAllowed)
 		s.writeJSONResponse(w, http.StatusMethodNotAllowed, models.Response{
 			State:   "error",
 			Message: "Method not allowed",
@@ -66,11 +79,8 @@ func (s *Server) handleUpdateSetTarget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	name := r.URL.Query().Get("name")
-	token := r.URL.Query().Get("token")
-	target := r.URL.Query().Get("target")
-
 	if name == "" || token == "" || target == "" {
+		s.logAPIRequest(r, "/api/update", params, "missing_parameters", http.StatusBadRequest)
 		s.writeJSONResponse(w, http.StatusBadRequest, models.Response{
 			State:   "error",
 			Message: "Missing required parameters: name, token, target",
@@ -79,6 +89,7 @@ func (s *Server) handleUpdateSetTarget(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !s.isValidTarget(target) {
+		s.logAPIRequest(r, "/api/update", params, "invalid_target_format", http.StatusBadRequest)
 		s.writeJSONResponse(w, http.StatusBadRequest, models.Response{
 			State:   "error",
 			Message: "Invalid target format. Expected host:port",
@@ -88,6 +99,7 @@ func (s *Server) handleUpdateSetTarget(w http.ResponseWriter, r *http.Request) {
 
 	err := s.storage.SetTarget(name, token, target)
 	if err != nil {
+		s.logAPIRequest(r, "/api/update", params, fmt.Sprintf("error:%s", err.Error()), http.StatusBadRequest)
 		s.writeJSONResponse(w, http.StatusBadRequest, models.Response{
 			State:   "error",
 			Message: err.Error(),
@@ -95,6 +107,7 @@ func (s *Server) handleUpdateSetTarget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.logAPIRequest(r, "/api/update", params, "success", http.StatusOK)
 	s.writeJSONResponse(w, http.StatusOK, models.Response{
 		State: "success",
 	})
@@ -203,7 +216,18 @@ func (s *Server) handleUpdateDomainTarget(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	domain := r.URL.Query().Get("domain")
+	token := r.URL.Query().Get("token")
+	target := r.URL.Query().Get("target")
+
+	params := map[string]string{
+		"domain": domain,
+		"token":  token,
+		"target": target,
+	}
+
 	if r.Method != http.MethodGet {
+		s.logAPIRequest(r, "/api/update-domain", params, "method_not_allowed", http.StatusMethodNotAllowed)
 		s.writeJSONResponse(w, http.StatusMethodNotAllowed, models.Response{
 			State:   "error",
 			Message: "Method not allowed",
@@ -211,11 +235,8 @@ func (s *Server) handleUpdateDomainTarget(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	domain := r.URL.Query().Get("domain")
-	token := r.URL.Query().Get("token")
-	target := r.URL.Query().Get("target")
-
 	if domain == "" || token == "" || target == "" {
+		s.logAPIRequest(r, "/api/update-domain", params, "missing_parameters", http.StatusBadRequest)
 		s.writeJSONResponse(w, http.StatusBadRequest, models.Response{
 			State:   "error",
 			Message: "Missing required parameters: domain, token, target",
@@ -224,6 +245,7 @@ func (s *Server) handleUpdateDomainTarget(w http.ResponseWriter, r *http.Request
 	}
 
 	if !s.isValidTarget(target) {
+		s.logAPIRequest(r, "/api/update-domain", params, "invalid_target_format", http.StatusBadRequest)
 		s.writeJSONResponse(w, http.StatusBadRequest, models.Response{
 			State:   "error",
 			Message: "Invalid target format. Expected URL or host:port",
@@ -232,6 +254,7 @@ func (s *Server) handleUpdateDomainTarget(w http.ResponseWriter, r *http.Request
 	}
 
 	if s.domainStorage == nil {
+		s.logAPIRequest(r, "/api/update-domain", params, "domain_storage_unavailable", http.StatusInternalServerError)
 		s.writeJSONResponse(w, http.StatusInternalServerError, models.Response{
 			State:   "error",
 			Message: "Domain storage not available",
@@ -241,6 +264,7 @@ func (s *Server) handleUpdateDomainTarget(w http.ResponseWriter, r *http.Request
 
 	err := s.domainStorage.SetDomainTarget(domain, token, target)
 	if err != nil {
+		s.logAPIRequest(r, "/api/update-domain", params, fmt.Sprintf("error:%s", err.Error()), http.StatusBadRequest)
 		s.writeJSONResponse(w, http.StatusBadRequest, models.Response{
 			State:   "error",
 			Message: err.Error(),
@@ -248,6 +272,7 @@ func (s *Server) handleUpdateDomainTarget(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	s.logAPIRequest(r, "/api/update-domain", params, "success", http.StatusOK)
 	s.writeJSONResponse(w, http.StatusOK, models.Response{
 		State: "success",
 	})
@@ -387,6 +412,29 @@ func (s *Server) Start(addr string) error {
 	return http.ListenAndServe(addr, s.mux)
 }
 
+// logAPIRequest logs API requests with relevant information
+func (s *Server) logAPIRequest(r *http.Request, endpoint string, params map[string]string, result string, status int) {
+	clientIP := r.RemoteAddr
+	if forwardedFor := r.Header.Get("X-Forwarded-For"); forwardedFor != "" {
+		clientIP = forwardedFor
+	}
+	
+	timestamp := time.Now().Format("2006-01-02 15:04:05")
+	
+	// Format parameters for logging (hide sensitive tokens)
+	logParams := make(map[string]string)
+	for k, v := range params {
+		if strings.Contains(strings.ToLower(k), "token") && v != "" {
+			logParams[k] = v[:8] + "..."  // Show only first 8 chars
+		} else {
+			logParams[k] = v
+		}
+	}
+	
+	log.Printf("[API] %s | %s %s | %s | Status: %d | Params: %v | Result: %s", 
+		timestamp, r.Method, endpoint, clientIP, status, logParams, result)
+}
+
 // API handlers for forwarding management
 func (s *Server) handleListForwardings(w http.ResponseWriter, r *http.Request) {
 	// 先检查是否为域名跳转
@@ -394,7 +442,13 @@ func (s *Server) handleListForwardings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	adminToken := r.URL.Query().Get("admin_token")
+	params := map[string]string{
+		"admin_token": adminToken,
+	}
+
 	if r.Method != http.MethodGet {
+		s.logAPIRequest(r, "/api/list", params, "method_not_allowed", http.StatusMethodNotAllowed)
 		s.writeJSONResponse(w, http.StatusMethodNotAllowed, models.Response{
 			State:   "error",
 			Message: "Method not allowed",
@@ -403,8 +457,8 @@ func (s *Server) handleListForwardings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 检查管理员认证
-	adminToken := r.URL.Query().Get("admin_token")
 	if !s.validateAdminToken(adminToken) {
+		s.logAPIRequest(r, "/api/list", params, "unauthorized", http.StatusUnauthorized)
 		s.writeJSONResponse(w, http.StatusUnauthorized, models.Response{
 			State:   "error",
 			Message: "Unauthorized access. Admin token required.",
@@ -413,6 +467,7 @@ func (s *Server) handleListForwardings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.storage == nil {
+		s.logAPIRequest(r, "/api/list", params, "storage_unavailable", http.StatusInternalServerError)
 		s.writeJSONResponse(w, http.StatusInternalServerError, models.Response{
 			State:   "error",
 			Message: "Storage not available",
@@ -422,6 +477,7 @@ func (s *Server) handleListForwardings(w http.ResponseWriter, r *http.Request) {
 
 	forwardings, err := s.storage.ListForwardings()
 	if err != nil {
+		s.logAPIRequest(r, "/api/list", params, fmt.Sprintf("error:%s", err.Error()), http.StatusInternalServerError)
 		s.writeJSONResponse(w, http.StatusInternalServerError, models.Response{
 			State:   "error",
 			Message: err.Error(),
@@ -429,6 +485,7 @@ func (s *Server) handleListForwardings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.logAPIRequest(r, "/api/list", params, fmt.Sprintf("success:%d_items", len(forwardings)), http.StatusOK)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"state":       "success",
@@ -442,7 +499,15 @@ func (s *Server) handleRemoveForwarding(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	adminToken := r.URL.Query().Get("admin_token")
+	name := r.URL.Query().Get("name")
+	params := map[string]string{
+		"admin_token": adminToken,
+		"name":        name,
+	}
+
 	if r.Method != http.MethodDelete {
+		s.logAPIRequest(r, "/api/remove", params, "method_not_allowed", http.StatusMethodNotAllowed)
 		s.writeJSONResponse(w, http.StatusMethodNotAllowed, models.Response{
 			State:   "error",
 			Message: "Method not allowed",
@@ -451,8 +516,8 @@ func (s *Server) handleRemoveForwarding(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// 检查管理员认证
-	adminToken := r.URL.Query().Get("admin_token")
 	if !s.validateAdminToken(adminToken) {
+		s.logAPIRequest(r, "/api/remove", params, "unauthorized", http.StatusUnauthorized)
 		s.writeJSONResponse(w, http.StatusUnauthorized, models.Response{
 			State:   "error",
 			Message: "Unauthorized access. Admin token required.",
@@ -460,8 +525,8 @@ func (s *Server) handleRemoveForwarding(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	name := r.URL.Query().Get("name")
 	if name == "" {
+		s.logAPIRequest(r, "/api/remove", params, "missing_name_parameter", http.StatusBadRequest)
 		s.writeJSONResponse(w, http.StatusBadRequest, models.Response{
 			State:   "error",
 			Message: "Missing required parameter: name",
@@ -471,6 +536,7 @@ func (s *Server) handleRemoveForwarding(w http.ResponseWriter, r *http.Request) 
 
 	err := s.configStorage.RemoveForwarding(name)
 	if err != nil {
+		s.logAPIRequest(r, "/api/remove", params, fmt.Sprintf("error:%s", err.Error()), http.StatusBadRequest)
 		s.writeJSONResponse(w, http.StatusBadRequest, models.Response{
 			State:   "error",
 			Message: err.Error(),
@@ -478,6 +544,7 @@ func (s *Server) handleRemoveForwarding(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	s.logAPIRequest(r, "/api/remove", params, "success", http.StatusOK)
 	s.writeJSONResponse(w, http.StatusOK, models.Response{
 		State: "success",
 	})
