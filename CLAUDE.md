@@ -25,6 +25,21 @@ go build -o redirect_helper ./cmd/redirect_helper
 # Run with custom config file
 ./redirect_helper -server -config /path/to/config.json
 
+# Generate tokens for management
+./redirect_helper -reset-admin-token      # For admin operations
+./redirect_helper -reset-redirect-token   # For redirect management
+./redirect_helper -reset-domain-token     # For domain management
+
+# Update/create redirects and domains
+./redirect_helper -update <name> -target <url>         # Create/update redirect
+./redirect_helper -update-domain <domain> -target <url> # Create/update domain
+
+# List and remove entries
+./redirect_helper -list              # List all redirects
+./redirect_helper -list-domains      # List all domains
+./redirect_helper -remove <name>     # Remove redirect
+./redirect_helper -remove-domain <domain> # Remove domain
+
 # Run interactive server mode (server + interactive menu)
 ./redirect_helper -server
 ```
@@ -57,8 +72,10 @@ go build -o redirect_helper ./cmd/redirect_helper
 4. Homepage (`/`)
 
 **Security Model**:
-- Individual tokens for each forwarding/domain (32-character hex)
-- Global admin token for management APIs
+- Global tokens for operations: `admin_token`, `redirect_token`, `domain_token` (32-character hex)
+- Admin token for management APIs (list, remove)
+- Redirect token for creating/updating path redirects
+- Domain token for creating/updating domain redirects
 - Token validation at both application and storage layers
 
 ## Configuration Structure
@@ -70,7 +87,6 @@ The application uses a single JSON configuration file (`redirect_helper.json`) w
   "forwardings": {
     "name": {
       "name": "string",
-      "token": "32-char-hex", 
       "target": "url-or-host:port",
       "created_at": "timestamp",
       "updated_at": "timestamp"
@@ -79,7 +95,6 @@ The application uses a single JSON configuration file (`redirect_helper.json`) w
   "domains": {
     "domain.com": {
       "domain": "string",
-      "token": "32-char-hex",
       "target": "full-url",
       "created_at": "timestamp", 
       "updated_at": "timestamp"
@@ -87,7 +102,11 @@ The application uses a single JSON configuration file (`redirect_helper.json`) w
   },
   "server": {
     "port": "string",
-    "admin_token": "32-char-hex"
+    "admin_token": "32-char-hex",
+    "redirect_token": "32-char-hex",
+    "domain_token": "32-char-hex",
+    "max_redirect_count": 20,
+    "max_domain_count": 10
   }
 }
 ```
@@ -96,15 +115,13 @@ The application uses a single JSON configuration file (`redirect_helper.json`) w
 
 ### Management APIs (require admin_token)
 - `GET /api/list?admin_token=<token>` - List all forwardings
-- `POST /api/create?name=<name>&admin_token=<token>` - Create forwarding
 - `DELETE /api/remove?name=<name>&admin_token=<token>` - Remove forwarding
 - `GET /api/list-domains?admin_token=<token>` - List all domains
-- `POST /api/create-domain?domain=<domain>&admin_token=<token>` - Create domain
 - `DELETE /api/remove-domain?domain=<domain>&admin_token=<token>` - Remove domain
 
-### Target Setting APIs (require individual tokens)
-- `GET /api/set?name=<name>&token=<token>&target=<target>` - Set forwarding target
-- `GET /api/set-domain?domain=<domain>&token=<token>&target=<target>` - Set domain target
+### Update APIs (require specific tokens)
+- `GET /api/update?name=<name>&token=<redirect_token>&target=<target>` - Create/update forwarding target
+- `GET /api/update-domain?domain=<domain>&token=<domain_token>&target=<target>` - Create/update domain target
 
 ### Redirect Endpoints
 - `GET /go/<name>` - Redirect to forwarding target
@@ -116,9 +133,9 @@ When running in server mode, the application provides an interactive menu system
 
 ```
 Main Menu:
-1. Settings (view config, change port, reset admin token)
-2. Forwardings (list, create, update, remove)
-3. Domains (list, create, update, remove)
+1. Settings (view config, change port, reset tokens, manage limits)
+2. Forwardings (list, update/create, remove)
+3. Domains (list, update/create, remove)
 ```
 
 Navigation: Use numbers to select, 'b' to go back, 'q' to quit.
@@ -138,16 +155,20 @@ Navigation: Use numbers to select, 'b' to go back, 'q' to quit.
 
 ## Token Management
 
-- **Individual Tokens**: Each forwarding/domain has a unique 32-character hex token
-- **Admin Token**: Global token for management operations, can be reset via CLI or interactive menu
+- **Global Tokens**: Three global 32-character hex tokens for different operations
+  - **Admin Token**: For management operations (list, remove)
+  - **Redirect Token**: For creating/updating path redirects
+  - **Domain Token**: For creating/updating domain redirects
 - **Token Generation**: Uses crypto/rand for secure token generation via `utils.GenerateToken()`
+- **Limits**: Configurable maximum counts (default: 20 redirects, 10 domains)
 
 ## Hot Configuration Reload
 
 Most configuration changes take effect immediately:
 - Adding/removing forwardings and domains
 - Updating targets
-- Admin token changes
+- Token changes (admin, redirect, domain)
+- Limit configuration changes
 
 **Requires Restart**:
 - Port changes (server must be restarted to bind to new port)
@@ -161,15 +182,37 @@ When working on this codebase:
 3. **Configuration Changes**: Update structs in `config/config.go` and add corresponding methods
 4. **Interactive Menu**: Add menu options in `main.go` interactive functions
 
+## Configuration Management
+
+### Auto-initialization (Server Mode)
+When running in server mode, configuration is automatically created with tokens:
+```bash
+# First time server start - auto-creates config with tokens
+./redirect_helper -server
+# Output: Shows generated admin, redirect, and domain tokens
+
+# Custom config path - auto-creates directory structure
+./redirect_helper -config /path/to/app.json -server
+```
+
+### Manual Token Management (Requires Existing Config)
+```bash
+# These commands require configuration file to exist
+./redirect_helper -reset-admin-token      # Reset admin token
+./redirect_helper -reset-redirect-token   # Reset redirect token  
+./redirect_helper -reset-domain-token     # Reset domain token
+```
+
 ## Testing the Application
 
-Create test entries:
+Quick start (server mode auto-creates everything):
 ```bash
-# Create a forwarding
-./redirect_helper -create test
+# Start server (auto-creates config and tokens)
+./redirect_helper -server
 
-# Create a domain
-./redirect_helper -create-domain test.example.com
+# In another terminal, create/update entries
+./redirect_helper -update test -target google.com
+./redirect_helper -update-domain test.example.com -target https://google.com
 
 # List entries
 ./redirect_helper -list

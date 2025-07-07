@@ -15,9 +15,6 @@ func NewConfigStorage(cfg *config.Config) *ConfigStorage {
 	}
 }
 
-func (s *ConfigStorage) CreateForwarding(name, token string) error {
-	return s.config.AddForwarding(name, token)
-}
 
 func (s *ConfigStorage) SetTarget(name, token, target string) error {
 	return s.config.SetTarget(name, token, target)
@@ -35,7 +32,6 @@ func (s *ConfigStorage) GetForwarding(name string) (*models.ForwardingEntry, err
 
 	return &models.ForwardingEntry{
 		Name:      forwarding.Name,
-		Token:     forwarding.Token,
 		Target:    forwarding.Target,
 		CreatedAt: forwarding.CreatedAt,
 		UpdatedAt: forwarding.UpdatedAt,
@@ -49,7 +45,6 @@ func (s *ConfigStorage) ListForwardings() ([]*models.ForwardingEntry, error) {
 	for _, f := range forwardings {
 		result = append(result, &models.ForwardingEntry{
 			Name:      f.Name,
-			Token:     f.Token,
 			Target:    f.Target,
 			CreatedAt: f.CreatedAt,
 			UpdatedAt: f.UpdatedAt,
@@ -68,9 +63,6 @@ func (s *ConfigStorage) UpdateTarget(name, target string) error {
 }
 
 // Domain methods implementation
-func (s *ConfigStorage) CreateDomain(domain, token string) error {
-	return s.config.AddDomain(domain, token)
-}
 
 func (s *ConfigStorage) SetDomainTarget(domain, token, target string) error {
 	return s.config.SetDomainTarget(domain, token, target)
@@ -88,7 +80,6 @@ func (s *ConfigStorage) GetDomain(domain string) (*models.DomainEntry, error) {
 
 	return &models.DomainEntry{
 		Domain:    domainConfig.Domain,
-		Token:     domainConfig.Token,
 		Target:    domainConfig.Target,
 		CreatedAt: domainConfig.CreatedAt,
 		UpdatedAt: domainConfig.UpdatedAt,
@@ -102,7 +93,6 @@ func (s *ConfigStorage) ListDomains() ([]*models.DomainEntry, error) {
 	for _, d := range domains {
 		result = append(result, &models.DomainEntry{
 			Domain:    d.Domain,
-			Token:     d.Token,
 			Target:    d.Target,
 			CreatedAt: d.CreatedAt,
 			UpdatedAt: d.UpdatedAt,
@@ -131,4 +121,29 @@ func (s *ConfigStorage) SetAdminToken(token string) error {
 
 func (s *ConfigStorage) GetAdminToken() string {
 	return s.config.GetAdminToken()
+}
+
+// Token management methods
+func (s *ConfigStorage) SetRedirectToken(token string) error {
+	return s.config.SetRedirectToken(token)
+}
+
+func (s *ConfigStorage) SetDomainToken(token string) error {
+	return s.config.SetDomainToken(token)
+}
+
+func (s *ConfigStorage) GetRedirectToken() string {
+	return s.config.GetRedirectToken()
+}
+
+func (s *ConfigStorage) GetDomainToken() string {
+	return s.config.GetDomainToken()
+}
+
+func (s *ConfigStorage) ValidateRedirectToken(token string) bool {
+	return s.config.ValidateRedirectToken(token)
+}
+
+func (s *ConfigStorage) ValidateDomainToken(token string) bool {
+	return s.config.ValidateDomainToken(token)
 }

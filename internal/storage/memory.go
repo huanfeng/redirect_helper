@@ -29,7 +29,6 @@ func (s *MemoryStorage) CreateForwarding(name, token string) error {
 
 	s.data[name] = &models.ForwardingEntry{
 		Name:      name,
-		Token:     token,
 		Target:    "",
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
@@ -45,10 +44,6 @@ func (s *MemoryStorage) SetTarget(name, token, target string) error {
 	entry, exists := s.data[name]
 	if !exists {
 		return errors.New("forwarding name not found")
-	}
-
-	if entry.Token != token {
-		return errors.New("invalid token")
 	}
 
 	entry.Target = target

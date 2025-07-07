@@ -17,23 +17,23 @@ import (
 
 func main() {
 	var (
-		createName   = flag.String("create", "", "Create a new forwarding name")
 		serverMode   = flag.Bool("server", false, "Run as server")
 		port         = flag.String("port", "8001", "Server port")
 		listMode     = flag.Bool("list", false, "List all forwarding entries")
 		removeName   = flag.String("remove", "", "Remove a forwarding name")
-		updateName   = flag.String("update", "", "Update target for a forwarding name")
+		updateName   = flag.String("update", "", "Update/create target for a forwarding name")
 		updateTarget = flag.String("target", "", "New target for update (use with -update)")
 		configFile   = flag.String("config", "", "Configuration file path (default: ./redirect_helper.json)")
 
 		// Domain management flags
-		createDomain = flag.String("create-domain", "", "Create a new domain mapping")
 		listDomains  = flag.Bool("list-domains", false, "List all domain mappings")
 		removeDomain = flag.String("remove-domain", "", "Remove a domain mapping")
-		updateDomain = flag.String("update-domain", "", "Update target for a domain mapping")
+		updateDomain = flag.String("update-domain", "", "Update/create target for a domain mapping")
 
-		// Admin token management flags
-		resetAdminToken = flag.Bool("reset-admin-token", false, "Reset admin token for API authentication")
+		// Token management flags
+		resetAdminToken    = flag.Bool("reset-admin-token", false, "Reset admin token for API authentication")
+		resetRedirectToken = flag.Bool("reset-redirect-token", false, "Reset redirect token for path redirects")
+		resetDomainToken   = flag.Bool("reset-domain-token", false, "Reset domain token for domain redirects")
 	)
 	flag.Parse()
 
@@ -41,17 +41,21 @@ func main() {
 		config.SetConfigPath(*configFile)
 	}
 
-	cfg, err := config.LoadConfig()
+	var cfg *config.Config
+	var err error
+	
+	// Use different config loading based on server mode
+	if *serverMode {
+		cfg, err = config.LoadConfigForServer()
+	} else {
+		cfg, err = config.LoadConfig()
+	}
+	
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
 	store := storage.NewConfigStorage(cfg)
-
-	if *createName != "" {
-		createForwarding(*createName, store)
-		return
-	}
 
 	if *listMode {
 		listForwardings(store)
@@ -69,11 +73,6 @@ func main() {
 	}
 
 	// Domain management commands
-	if *createDomain != "" {
-		createDomainMapping(*createDomain, store)
-		return
-	}
-
 	if *listDomains {
 		listDomainMappings(store)
 		return
@@ -89,9 +88,19 @@ func main() {
 		return
 	}
 
-	// Admin token management commands
+	// Token management commands
 	if *resetAdminToken {
 		resetAdminTokenCmd(store)
+		return
+	}
+
+	if *resetRedirectToken {
+		resetRedirectTokenCmd(store)
+		return
+	}
+
+	if *resetDomainToken {
+		resetDomainTokenCmd(store)
 		return
 	}
 
@@ -103,23 +112,6 @@ func main() {
 	flag.Usage()
 }
 
-func createForwarding(name string, store *storage.ConfigStorage) {
-	token, err := utils.GenerateToken(32)
-	if err != nil {
-		log.Fatalf("Failed to generate token: %v", err)
-	}
-
-	err = store.CreateForwarding(name, token)
-	if err != nil {
-		log.Fatalf("Failed to create forwarding: %v", err)
-	}
-
-	fmt.Printf("Forwarding created successfully:\n")
-	fmt.Printf("Name: %s\n", name)
-	fmt.Printf("Token: %s\n", token)
-	fmt.Printf("Use this token to set the target via API\n")
-	fmt.Printf("Config saved to: %s\n", config.GetConfigPath())
-}
 
 func listForwardings(store *storage.ConfigStorage) {
 	forwardings, err := store.ListForwardings()
@@ -153,12 +145,18 @@ func updateForwarding(name, target string, store *storage.ConfigStorage) {
 		log.Fatal("Target is required for update. Use -target flag")
 	}
 
-	err := store.UpdateTarget(name, target)
-	if err != nil {
-		log.Fatalf("Failed to update forwarding: %v", err)
+	// 获取redirect token
+	redirectToken := store.GetRedirectToken()
+	if redirectToken == "" {
+		log.Fatal("Redirect token not set. Use -reset-redirect-token to generate one")
 	}
 
-	fmt.Printf("Forwarding '%s' updated successfully with target: %s\n", name, target)
+	err := store.SetTarget(name, redirectToken, target)
+	if err != nil {
+		log.Fatalf("Failed to update/create forwarding: %v", err)
+	}
+
+	fmt.Printf("Forwarding '%s' updated/created successfully with target: %s\n", name, target)
 }
 
 func startServer(port string, store *storage.ConfigStorage, cfg *config.Config) {
@@ -187,23 +185,6 @@ func startServer(port string, store *storage.ConfigStorage, cfg *config.Config) 
 }
 
 // Domain management functions
-func createDomainMapping(domain string, store *storage.ConfigStorage) {
-	token, err := utils.GenerateToken(32)
-	if err != nil {
-		log.Fatalf("Failed to generate token: %v", err)
-	}
-
-	err = store.CreateDomain(domain, token)
-	if err != nil {
-		log.Fatalf("Failed to create domain mapping: %v", err)
-	}
-
-	fmt.Printf("Domain mapping created successfully:\n")
-	fmt.Printf("Domain: %s\n", domain)
-	fmt.Printf("Token: %s\n", token)
-	fmt.Printf("Use this token to set the target via API\n")
-	fmt.Printf("Config saved to: %s\n", config.GetConfigPath())
-}
 
 func listDomainMappings(store *storage.ConfigStorage) {
 	domains, err := store.ListDomains()
@@ -237,15 +218,21 @@ func updateDomainMapping(domain, target string, store *storage.ConfigStorage) {
 		log.Fatal("Target is required for update. Use -target flag")
 	}
 
-	err := store.UpdateDomainTarget(domain, target)
-	if err != nil {
-		log.Fatalf("Failed to update domain mapping: %v", err)
+	// 获取domain token
+	domainToken := store.GetDomainToken()
+	if domainToken == "" {
+		log.Fatal("Domain token not set. Use -reset-domain-token to generate one")
 	}
 
-	fmt.Printf("Domain mapping '%s' updated successfully with target: %s\n", domain, target)
+	err := store.SetDomainTarget(domain, domainToken, target)
+	if err != nil {
+		log.Fatalf("Failed to update/create domain mapping: %v", err)
+	}
+
+	fmt.Printf("Domain mapping '%s' updated/created successfully with target: %s\n", domain, target)
 }
 
-// Admin token management functions
+// Token management functions
 func resetAdminTokenCmd(store *storage.ConfigStorage) {
 	token, err := utils.GenerateToken(32)
 	if err != nil {
@@ -259,6 +246,36 @@ func resetAdminTokenCmd(store *storage.ConfigStorage) {
 
 	fmt.Printf("Admin token reset successfully\n")
 	fmt.Printf("New admin token: %s\n", token)
+}
+
+func resetRedirectTokenCmd(store *storage.ConfigStorage) {
+	token, err := utils.GenerateToken(32)
+	if err != nil {
+		log.Fatalf("Failed to generate token: %v", err)
+	}
+
+	err = store.SetRedirectToken(token)
+	if err != nil {
+		log.Fatalf("Failed to set redirect token: %v", err)
+	}
+
+	fmt.Printf("Redirect token reset successfully\n")
+	fmt.Printf("New redirect token: %s\n", token)
+}
+
+func resetDomainTokenCmd(store *storage.ConfigStorage) {
+	token, err := utils.GenerateToken(32)
+	if err != nil {
+		log.Fatalf("Failed to generate token: %v", err)
+	}
+
+	err = store.SetDomainToken(token)
+	if err != nil {
+		log.Fatalf("Failed to set domain token: %v", err)
+	}
+
+	fmt.Printf("Domain token reset successfully\n")
+	fmt.Printf("New domain token: %s\n", token)
 }
 
 // Interactive menu system
@@ -309,6 +326,8 @@ func settingsMenu(store *storage.ConfigStorage, cfg *config.Config, scanner *buf
 		fmt.Println("1. View")
 		fmt.Println("2. Change port")
 		fmt.Println("3. Reset admin token")
+		fmt.Println("4. Reset redirect token")
+		fmt.Println("5. Reset domain token")
 		fmt.Println("b. Back")
 		fmt.Print("Select option: ")
 
@@ -320,11 +339,15 @@ func settingsMenu(store *storage.ConfigStorage, cfg *config.Config, scanner *buf
 
 		switch choice {
 		case "1":
-			viewSettings(cfg)
+			viewSettings(cfg, store)
 		case "2":
 			changePort(store, cfg, scanner)
 		case "3":
 			generateAdminToken(store, scanner)
+		case "4":
+			generateRedirectToken(store, scanner)
+		case "5":
+			generateDomainToken(store, scanner)
 		case "b", "B":
 			fmt.Println("") // 添加一个空行，然后直接返回到主菜单
 			return
@@ -340,9 +363,8 @@ func forwardingsMenu(store *storage.ConfigStorage, scanner *bufio.Scanner) {
 		fmt.Println("🔗 Forwardings")
 		fmt.Println(strings.Repeat("-", 40))
 		fmt.Println("1. List")
-		fmt.Println("2. Create")
-		fmt.Println("3. Update")
-		fmt.Println("4. Remove")
+		fmt.Println("2. Update/Create")
+		fmt.Println("3. Remove")
 		fmt.Println("b. Back")
 		fmt.Print("Select option: ")
 
@@ -356,10 +378,8 @@ func forwardingsMenu(store *storage.ConfigStorage, scanner *bufio.Scanner) {
 		case "1":
 			listForwardingsInteractive(store)
 		case "2":
-			createForwardingInteractive(store, scanner)
-		case "3":
 			updateForwardingInteractive(store, scanner)
-		case "4":
+		case "3":
 			removeForwardingInteractive(store, scanner)
 		case "b", "B":
 			fmt.Println("") // 添加一个空行，然后直接返回到主菜单
@@ -376,9 +396,8 @@ func domainsMenu(store *storage.ConfigStorage, scanner *bufio.Scanner) {
 		fmt.Println("🌐 Domains")
 		fmt.Println(strings.Repeat("-", 40))
 		fmt.Println("1. List")
-		fmt.Println("2. Create")
-		fmt.Println("3. Update")
-		fmt.Println("4. Remove")
+		fmt.Println("2. Update/Create")
+		fmt.Println("3. Remove")
 		fmt.Println("b. Back")
 		fmt.Print("Select option: ")
 
@@ -392,10 +411,8 @@ func domainsMenu(store *storage.ConfigStorage, scanner *bufio.Scanner) {
 		case "1":
 			listDomainsInteractive(store)
 		case "2":
-			createDomainInteractive(store, scanner)
-		case "3":
 			updateDomainInteractive(store, scanner)
-		case "4":
+		case "3":
 			removeDomainInteractive(store, scanner)
 		case "b", "B":
 			fmt.Println("") // 添加一个空行，然后直接返回到主菜单
@@ -407,14 +424,29 @@ func domainsMenu(store *storage.ConfigStorage, scanner *bufio.Scanner) {
 }
 
 // Settings menu functions
-func viewSettings(cfg *config.Config) {
+func viewSettings(cfg *config.Config, store *storage.ConfigStorage) {
 	fmt.Println("\n📋 Current Settings:")
 	if cfg.Server != nil {
 		fmt.Printf("Port: %s\n", cfg.Server.Port)
+		fmt.Printf("Max Redirects: %d\n", cfg.Server.MaxRedirectCount)
+		fmt.Printf("Max Domains: %d\n", cfg.Server.MaxDomainCount)
+		
 		if cfg.Server.AdminToken != "" {
 			fmt.Printf("Admin Token: %s\n", cfg.Server.AdminToken)
 		} else {
 			fmt.Println("Admin Token: Not set")
+		}
+		
+		if cfg.Server.RedirectToken != "" {
+			fmt.Printf("Redirect Token: %s\n", cfg.Server.RedirectToken)
+		} else {
+			fmt.Println("Redirect Token: Not set")
+		}
+		
+		if cfg.Server.DomainToken != "" {
+			fmt.Printf("Domain Token: %s\n", cfg.Server.DomainToken)
+		} else {
+			fmt.Println("Domain Token: Not set")
 		}
 	}
 	fmt.Printf("Config file: %s\n", config.GetConfigPath())
@@ -464,6 +496,36 @@ func generateAdminToken(store *storage.ConfigStorage, scanner *bufio.Scanner) {
 	fmt.Printf("New admin token generated: %s\n", token)
 }
 
+func generateRedirectToken(store *storage.ConfigStorage, scanner *bufio.Scanner) {
+	token, err := utils.GenerateToken(32)
+	if err != nil {
+		fmt.Printf("Failed to generate token: %v\n", err)
+		return
+	}
+
+	if err := store.SetRedirectToken(token); err != nil {
+		fmt.Printf("Failed to set redirect token: %v\n", err)
+		return
+	}
+
+	fmt.Printf("New redirect token generated: %s\n", token)
+}
+
+func generateDomainToken(store *storage.ConfigStorage, scanner *bufio.Scanner) {
+	token, err := utils.GenerateToken(32)
+	if err != nil {
+		fmt.Printf("Failed to generate token: %v\n", err)
+		return
+	}
+
+	if err := store.SetDomainToken(token); err != nil {
+		fmt.Printf("Failed to set domain token: %v\n", err)
+		return
+	}
+
+	fmt.Printf("New domain token generated: %s\n", token)
+}
+
 // Forwardings menu functions
 func listForwardingsInteractive(store *storage.ConfigStorage) {
 	forwardings, err := store.ListForwardings()
@@ -484,34 +546,15 @@ func listForwardingsInteractive(store *storage.ConfigStorage) {
 	}
 }
 
-func createForwardingInteractive(store *storage.ConfigStorage, scanner *bufio.Scanner) {
-	fmt.Print("Enter forwarding name: ")
-	if !scanner.Scan() {
-		return
-	}
-
-	name := strings.TrimSpace(scanner.Text())
-	if name == "" {
-		fmt.Println("Name cannot be empty")
-		return
-	}
-
-	token, err := utils.GenerateToken(32)
-	if err != nil {
-		fmt.Printf("Failed to generate token: %v\n", err)
-		return
-	}
-
-	if err := store.CreateForwarding(name, token); err != nil {
-		fmt.Printf("Failed to create forwarding: %v\n", err)
-		return
-	}
-
-	fmt.Printf("Forwarding '%s' created successfully\n", name)
-	fmt.Printf("Token: %s\n", token)
-}
 
 func updateForwardingInteractive(store *storage.ConfigStorage, scanner *bufio.Scanner) {
+	// Check if redirect token is set
+	redirectToken := store.GetRedirectToken()
+	if redirectToken == "" {
+		fmt.Println("❌ Redirect token not set. Please generate one in Settings menu first.")
+		return
+	}
+
 	fmt.Print("Enter forwarding name: ")
 	if !scanner.Scan() {
 		return
@@ -523,7 +566,7 @@ func updateForwardingInteractive(store *storage.ConfigStorage, scanner *bufio.Sc
 		return
 	}
 
-	fmt.Print("Enter new target: ")
+	fmt.Print("Enter target: ")
 	if !scanner.Scan() {
 		return
 	}
@@ -534,12 +577,12 @@ func updateForwardingInteractive(store *storage.ConfigStorage, scanner *bufio.Sc
 		return
 	}
 
-	if err := store.UpdateTarget(name, target); err != nil {
-		fmt.Printf("Failed to update forwarding: %v\n", err)
+	if err := store.SetTarget(name, redirectToken, target); err != nil {
+		fmt.Printf("Failed to update/create forwarding: %v\n", err)
 		return
 	}
 
-	fmt.Printf("Forwarding '%s' updated successfully with target: %s\n", name, target)
+	fmt.Printf("Forwarding '%s' updated/created successfully with target: %s\n", name, target)
 }
 
 func removeForwardingInteractive(store *storage.ConfigStorage, scanner *bufio.Scanner) {
@@ -582,34 +625,15 @@ func listDomainsInteractive(store *storage.ConfigStorage) {
 	}
 }
 
-func createDomainInteractive(store *storage.ConfigStorage, scanner *bufio.Scanner) {
-	fmt.Print("Enter domain name: ")
-	if !scanner.Scan() {
-		return
-	}
-
-	domain := strings.TrimSpace(scanner.Text())
-	if domain == "" {
-		fmt.Println("Domain cannot be empty")
-		return
-	}
-
-	token, err := utils.GenerateToken(32)
-	if err != nil {
-		fmt.Printf("Failed to generate token: %v\n", err)
-		return
-	}
-
-	if err := store.CreateDomain(domain, token); err != nil {
-		fmt.Printf("Failed to create domain: %v\n", err)
-		return
-	}
-
-	fmt.Printf("Domain '%s' created successfully\n", domain)
-	fmt.Printf("Token: %s\n", token)
-}
 
 func updateDomainInteractive(store *storage.ConfigStorage, scanner *bufio.Scanner) {
+	// Check if domain token is set
+	domainToken := store.GetDomainToken()
+	if domainToken == "" {
+		fmt.Println("❌ Domain token not set. Please generate one in Settings menu first.")
+		return
+	}
+
 	fmt.Print("Enter domain name: ")
 	if !scanner.Scan() {
 		return
@@ -621,7 +645,7 @@ func updateDomainInteractive(store *storage.ConfigStorage, scanner *bufio.Scanne
 		return
 	}
 
-	fmt.Print("Enter new target: ")
+	fmt.Print("Enter target: ")
 	if !scanner.Scan() {
 		return
 	}
@@ -632,12 +656,12 @@ func updateDomainInteractive(store *storage.ConfigStorage, scanner *bufio.Scanne
 		return
 	}
 
-	if err := store.UpdateDomainTarget(domain, target); err != nil {
-		fmt.Printf("Failed to update domain: %v\n", err)
+	if err := store.SetDomainTarget(domain, domainToken, target); err != nil {
+		fmt.Printf("Failed to update/create domain: %v\n", err)
 		return
 	}
 
-	fmt.Printf("Domain '%s' updated successfully with target: %s\n", domain, target)
+	fmt.Printf("Domain '%s' updated/created successfully with target: %s\n", domain, target)
 }
 
 func removeDomainInteractive(store *storage.ConfigStorage, scanner *bufio.Scanner) {

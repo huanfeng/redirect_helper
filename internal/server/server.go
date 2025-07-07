@@ -37,15 +37,13 @@ func NewServer(store interface{}) *Server {
 func (s *Server) setupRoutes() {
 	// API routes - basic operations
 	s.mux.HandleFunc("/api/list", s.handleListForwardings)
-	s.mux.HandleFunc("/api/create", s.handleCreateForwarding)
 	s.mux.HandleFunc("/api/remove", s.handleRemoveForwarding)
-	s.mux.HandleFunc("/api/set", s.handleSetTarget)
-	
+	s.mux.HandleFunc("/api/update", s.handleUpdateSetTarget)
+
 	// API routes - domain operations
 	s.mux.HandleFunc("/api/list-domains", s.handleListDomains)
-	s.mux.HandleFunc("/api/create-domain", s.handleCreateDomain)
 	s.mux.HandleFunc("/api/remove-domain", s.handleRemoveDomain)
-	s.mux.HandleFunc("/api/set-domain", s.handleSetDomainTarget)
+	s.mux.HandleFunc("/api/update-domain", s.handleUpdateDomainTarget)
 
 	// Legacy redirect route
 	s.mux.HandleFunc("/go/", s.handleRedirect)
@@ -54,7 +52,7 @@ func (s *Server) setupRoutes() {
 	s.mux.HandleFunc("/", s.handleRequest)
 }
 
-func (s *Server) handleSetTarget(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleUpdateSetTarget(w http.ResponseWriter, r *http.Request) {
 	// 先检查是否为域名跳转
 	if s.checkDomainRedirect(w, r) {
 		return
@@ -153,27 +151,25 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 <body>
     <h1>🔄 Redirect Helper</h1>
     <p>Two redirect modes: path-based and domain-based</p>
-    
+
     <div class="api-section">
         <h2>🔗 Path Redirects</h2>
         <p><strong>Access:</strong> <code>/go/&lt;name&gt;</code></p>
-        <p><span class="method">GET</span> <strong>Set target:</strong> <code>/api/set?name=&lt;name&gt;&token=&lt;token&gt;&target=&lt;target&gt;</code></p>
+        <p><span class="method">GET</span> <strong>Update/Create:</strong> <code>/api/update?name=&lt;name&gt;&token=&lt;redirect_token&gt;&target=&lt;target&gt;</code></p>
         <p><span class="method">GET</span> <strong>List:</strong> <code>/api/list?admin_token=&lt;admin_token&gt;</code></p>
-        <p><span class="method">POST</span> <strong>Create:</strong> <code>/api/create?name=&lt;name&gt;&admin_token=&lt;admin_token&gt;</code></p>
         <p><span class="method">DELETE</span> <strong>Remove:</strong> <code>/api/remove?name=&lt;name&gt;&admin_token=&lt;admin_token&gt;</code></p>
     </div>
-    
+
     <div class="api-section">
         <h2>🌐 Domain Redirects</h2>
         <p><strong>Access:</strong> Direct domain access with full URL preservation</p>
-        <p><span class="method">GET</span> <strong>Set target:</strong> <code>/api/set-domain?domain=&lt;domain&gt;&token=&lt;token&gt;&target=&lt;target&gt;</code></p>
+        <p><span class="method">GET</span> <strong>Update/Create:</strong> <code>/api/update-domain?domain=&lt;domain&gt;&token=&lt;domain_token&gt;&target=&lt;target&gt;</code></p>
         <p><span class="method">GET</span> <strong>List:</strong> <code>/api/list-domains?admin_token=&lt;admin_token&gt;</code></p>
-        <p><span class="method">POST</span> <strong>Create:</strong> <code>/api/create-domain?domain=&lt;domain&gt;&admin_token=&lt;admin_token&gt;</code></p>
         <p><span class="method">DELETE</span> <strong>Remove:</strong> <code>/api/remove-domain?domain=&lt;domain&gt;&admin_token=&lt;admin_token&gt;</code></p>
     </div>
-    
+
     <div class="warning">
-        ⚠️ All management operations (list, create, remove) require admin token
+        ⚠️ Management operations (list, remove) require admin token. Update operations require specific tokens.
     </div>
 </body>
 </html>
@@ -201,7 +197,7 @@ func (s *Server) isValidTarget(target string) bool {
 	return len(parts) >= 2 && parts[0] != "" && parts[1] != ""
 }
 
-func (s *Server) handleSetDomainTarget(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleUpdateDomainTarget(w http.ResponseWriter, r *http.Request) {
 	// 先检查是否为域名跳转
 	if s.checkDomainRedirect(w, r) {
 		return
@@ -440,66 +436,6 @@ func (s *Server) handleListForwardings(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) handleCreateForwarding(w http.ResponseWriter, r *http.Request) {
-	// 先检查是否为域名跳转
-	if s.checkDomainRedirect(w, r) {
-		return
-	}
-
-	if r.Method != http.MethodPost {
-		s.writeJSONResponse(w, http.StatusMethodNotAllowed, models.Response{
-			State:   "error",
-			Message: "Method not allowed",
-		})
-		return
-	}
-
-	// 检查管理员认证
-	adminToken := r.URL.Query().Get("admin_token")
-	if !s.validateAdminToken(adminToken) {
-		s.writeJSONResponse(w, http.StatusUnauthorized, models.Response{
-			State:   "error",
-			Message: "Unauthorized access. Admin token required.",
-		})
-		return
-	}
-
-	name := r.URL.Query().Get("name")
-	if name == "" {
-		s.writeJSONResponse(w, http.StatusBadRequest, models.Response{
-			State:   "error",
-			Message: "Missing required parameter: name",
-		})
-		return
-	}
-
-	// 生成token
-	token, err := s.generateToken(32)
-	if err != nil {
-		s.writeJSONResponse(w, http.StatusInternalServerError, models.Response{
-			State:   "error",
-			Message: "Failed to generate token",
-		})
-		return
-	}
-
-	err = s.configStorage.CreateForwarding(name, token)
-	if err != nil {
-		s.writeJSONResponse(w, http.StatusBadRequest, models.Response{
-			State:   "error",
-			Message: err.Error(),
-		})
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"state": "success",
-		"name":  name,
-		"token": token,
-	})
-}
-
 func (s *Server) handleRemoveForwarding(w http.ResponseWriter, r *http.Request) {
 	// 先检查是否为域名跳转
 	if s.checkDomainRedirect(w, r) {
@@ -544,74 +480,6 @@ func (s *Server) handleRemoveForwarding(w http.ResponseWriter, r *http.Request) 
 
 	s.writeJSONResponse(w, http.StatusOK, models.Response{
 		State: "success",
-	})
-}
-
-func (s *Server) handleCreateDomain(w http.ResponseWriter, r *http.Request) {
-	// 先检查是否为域名跳转
-	if s.checkDomainRedirect(w, r) {
-		return
-	}
-
-	if r.Method != http.MethodPost {
-		s.writeJSONResponse(w, http.StatusMethodNotAllowed, models.Response{
-			State:   "error",
-			Message: "Method not allowed",
-		})
-		return
-	}
-
-	// 检查管理员认证
-	adminToken := r.URL.Query().Get("admin_token")
-	if !s.validateAdminToken(adminToken) {
-		s.writeJSONResponse(w, http.StatusUnauthorized, models.Response{
-			State:   "error",
-			Message: "Unauthorized access. Admin token required.",
-		})
-		return
-	}
-
-	domain := r.URL.Query().Get("domain")
-	if domain == "" {
-		s.writeJSONResponse(w, http.StatusBadRequest, models.Response{
-			State:   "error",
-			Message: "Missing required parameter: domain",
-		})
-		return
-	}
-
-	if s.domainStorage == nil {
-		s.writeJSONResponse(w, http.StatusInternalServerError, models.Response{
-			State:   "error",
-			Message: "Domain storage not available",
-		})
-		return
-	}
-
-	// 生成token
-	token, err := s.generateToken(32)
-	if err != nil {
-		s.writeJSONResponse(w, http.StatusInternalServerError, models.Response{
-			State:   "error",
-			Message: "Failed to generate token",
-		})
-		return
-	}
-
-	err = s.configStorage.CreateDomain(domain, token)
-	if err != nil {
-		s.writeJSONResponse(w, http.StatusBadRequest, models.Response{
-			State:   "error",
-			Message: err.Error(),
-		})
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"state":  "success",
-		"domain": domain,
-		"token":  token,
 	})
 }
 
