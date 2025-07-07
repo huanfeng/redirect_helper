@@ -6,7 +6,8 @@
       "Bash(go build:*)",
       "Bash(./redirect_helper:*)",
       "Bash(mv:*)",
-      "Bash(./redirect_helper:*)"
+      "Bash(./redirect_helper:*)",
+      "Bash(ls:*)"
     ],
     "deny": []
   }
