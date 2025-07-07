@@ -3,7 +3,7 @@ name: Build and Push to Docker Hub
 on:
   push:
     branches:
-      - main
+      - 'v[0-9]+.[0-9]+*'  # Version branches like v0.1, v1.0, v0.1.1
     tags:
       - 'v*'
   pull_request:
@@ -33,6 +33,21 @@ jobs:
         username: ${{ secrets.DOCKER_HUB_USERNAME }}
         password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
 
+    - name: Extract version from branch/tag
+      id: version
+      run: |
+        if [[ "${GITHUB_REF}" =~ ^refs/heads/v([0-9]+\.[0-9]+.*) ]]; then
+          echo "version=${BASH_REMATCH[1]}" >> $GITHUB_OUTPUT
+          echo "branch_name=${GITHUB_REF#refs/heads/}" >> $GITHUB_OUTPUT
+          echo "is_version_build=true" >> $GITHUB_OUTPUT
+        elif [[ "${GITHUB_REF}" =~ ^refs/tags/v([0-9]+\.[0-9]+.*) ]]; then
+          echo "version=${BASH_REMATCH[1]}" >> $GITHUB_OUTPUT
+          echo "tag_name=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          echo "is_version_build=true" >> $GITHUB_OUTPUT
+        else
+          echo "is_version_build=false" >> $GITHUB_OUTPUT
+        fi
+
     - name: Extract metadata
       id: meta
       uses: docker/metadata-action@v5
@@ -43,7 +58,16 @@ jobs:
           type=ref,event=pr
           type=semver,pattern={{version}}
           type=semver,pattern={{major}}.{{minor}}
-          type=raw,value=latest,enable={{is_default_branch}}
+          type=raw,value=${{ steps.version.outputs.version }},enable=${{ steps.version.outputs.is_version_build == 'true' }}
+          type=raw,value=latest,enable=${{ steps.version.outputs.is_version_build == 'true' }}
+
+    - name: Debug - Show extracted version and tags
+      run: |
+        echo "GITHUB_REF: ${{ github.ref }}"
+        echo "Extracted version: ${{ steps.version.outputs.version }}"
+        echo "Is version build: ${{ steps.version.outputs.is_version_build }}"
+        echo "Generated tags: ${{ steps.meta.outputs.tags }}"
+        echo "Generated labels: ${{ steps.meta.outputs.labels }}"
 
     - name: Build and push Docker image
       uses: docker/build-push-action@v5
