@@ -61,10 +61,60 @@ Domain Token: 9e4c42fe94b24058037f2cd8a042a267
 
 ```bash
 # 创建路径跳转
-curl "http://localhost:8001/api/update?name=test&token=<redirect_token>&target=google.com"
+curl "http://localhost:8001/api/update?name=test&token=<redirect_token>&target=google.com:443"
 
 # 创建域名跳转
 curl "http://localhost:8001/api/update-domain?domain=example.com&token=<domain_token>&target=https://google.com"
+```
+
+### 批量更新
+
+支持在一次请求中更新多个跳转条目，提供 GET 和 POST 两种方式：
+
+#### GET 方式（索引参数）
+
+```bash
+# 批量创建/更新路径跳转
+curl "http://localhost:8001/api/batch-update?redirect_token=<token>&name1=test1&target1=google.com:443&name2=test2&target2=baidu.com:443"
+
+# 批量创建/更新域名跳转
+curl "http://localhost:8001/api/batch-update?domain_token=<token>&domain1=d1.example.com&target1=https://google.com&domain2=d2.example.com&target2=https://baidu.com"
+
+# 混合批量更新（路径 + 域名）
+curl "http://localhost:8001/api/batch-update?redirect_token=<r_token>&domain_token=<d_token>&name1=test&target1=google.com:443&domain2=example.com&target2=https://github.com"
+```
+
+#### POST 方式（JSON）
+
+```bash
+curl -X POST "http://localhost:8001/api/batch-update" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "redirect_token": "<redirect_token>",
+    "domain_token": "<domain_token>",
+    "entries": [
+      {"name": "test1", "target": "google.com:443"},
+      {"name": "test2", "target": "baidu.com:443"},
+      {"domain": "example.com", "target": "https://github.com"}
+    ]
+  }'
+```
+
+**响应示例**：
+```json
+{
+  "state": "success",
+  "message": "All entries updated successfully",
+  "results": [
+    {"name": "test1", "target": "google.com:443", "success": true},
+    {"name": "test2", "target": "baidu.com:443", "success": true}
+  ],
+  "summary": {
+    "total": 2,
+    "succeeded": 2,
+    "failed": 0
+  }
+}
 ```
 
 ### 查看管理界面

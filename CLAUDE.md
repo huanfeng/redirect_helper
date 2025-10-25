@@ -123,6 +123,67 @@ The application uses a single JSON configuration file (`redirect_helper.json`) w
 - `GET /api/update?name=<name>&token=<redirect_token>&target=<target>` - Create/update forwarding target
 - `GET /api/update-domain?domain=<domain>&token=<domain_token>&target=<target>` - Create/update domain target
 
+### Batch Update APIs (require specific tokens)
+- `GET /api/batch-update` - Batch update with indexed parameters
+- `POST /api/batch-update` - Batch update with JSON body
+
+#### Batch Update - GET Method (Indexed Parameters)
+Use indexed parameters (name1, target1, name2, target2, etc.) for simple batch updates:
+
+```bash
+# Batch update path redirects
+GET /api/batch-update?redirect_token=<token>&name1=test1&target1=google.com:443&name2=test2&target2=baidu.com:443
+
+# Batch update domain redirects
+GET /api/batch-update?domain_token=<token>&domain1=d1.example.com&target1=https://google.com&domain2=d2.example.com&target2=https://baidu.com
+
+# Mixed batch update (paths and domains)
+GET /api/batch-update?redirect_token=<r_token>&domain_token=<d_token>&name1=test1&target1=google.com:443&domain2=d.example.com&target2=https://github.com
+```
+
+#### Batch Update - POST Method (JSON Body)
+Use JSON body for more flexible and structured batch updates:
+
+```bash
+POST /api/batch-update
+Content-Type: application/json
+
+{
+  "redirect_token": "your_redirect_token",
+  "domain_token": "your_domain_token",
+  "entries": [
+    {"name": "test1", "target": "google.com:443"},
+    {"name": "test2", "target": "baidu.com:443"},
+    {"domain": "d.example.com", "target": "https://github.com"}
+  ]
+}
+```
+
+**Response Format**:
+```json
+{
+  "state": "success",
+  "message": "All entries updated successfully",
+  "results": [
+    {
+      "name": "test1",
+      "target": "google.com:443",
+      "success": true
+    }
+  ],
+  "summary": {
+    "total": 3,
+    "succeeded": 3,
+    "failed": 0
+  }
+}
+```
+
+**Response States**:
+- `success` - All entries updated successfully
+- `partial` - Some entries succeeded, some failed
+- `error` - All entries failed to update
+
 ### Redirect Endpoints
 - `GET /go/<name>` - Redirect to forwarding target
 - `GET /*` - Domain-based redirect (any path, preserves full URL)

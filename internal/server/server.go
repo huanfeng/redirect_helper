@@ -47,6 +47,9 @@ func (s *Server) setupRoutes() {
 	s.mux.HandleFunc("/api/remove-domain", s.handleRemoveDomain)
 	s.mux.HandleFunc("/api/update-domain", s.handleUpdateDomainTarget)
 
+	// API routes - batch operations
+	s.mux.HandleFunc("/api/batch-update", s.handleBatchUpdate)
+
 	// Legacy redirect route
 	s.mux.HandleFunc("/go/", s.handleRedirect)
 
@@ -206,6 +209,42 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
         <p><span class="method">GET</span> <strong>Update/Create:</strong> <code>/api/update-domain?domain=&lt;domain&gt;&token=&lt;domain_token&gt;&target=&lt;target&gt;</code></p>
         <p><span class="method">GET</span> <strong>List:</strong> <code>/api/list-domains?admin_token=&lt;admin_token&gt;</code></p>
         <p><span class="method">DELETE</span> <strong>Remove:</strong> <code>/api/remove-domain?domain=&lt;domain&gt;&admin_token=&lt;admin_token&gt;</code></p>
+    </div>
+
+    <div class="api-section">
+        <h2>🔄 Batch Update</h2>
+        <p><strong>Update multiple entries in one request</strong></p>
+
+        <h3>GET Method (Indexed Parameters)</h3>
+        <p><span class="method">GET</span> <code>/api/batch-update?redirect_token=&lt;token&gt;&name1=&lt;name&gt;&target1=&lt;target&gt;&name2=...</code></p>
+        <p><strong>Example - Path redirects:</strong></p>
+        <code style="display:block;margin:5px 0;padding:8px;background:#fff;">
+        /api/batch-update?redirect_token=xxx&name1=test1&target1=google.com:443&name2=test2&target2=baidu.com:443
+        </code>
+
+        <p><strong>Example - Domain redirects:</strong></p>
+        <code style="display:block;margin:5px 0;padding:8px;background:#fff;">
+        /api/batch-update?domain_token=xxx&domain1=d1.example.com&target1=https://google.com&domain2=d2.example.com&target2=https://baidu.com
+        </code>
+
+        <p><strong>Example - Mixed (paths + domains):</strong></p>
+        <code style="display:block;margin:5px 0;padding:8px;background:#fff;">
+        /api/batch-update?redirect_token=xxx&domain_token=yyy&name1=test&target1=google.com:443&domain2=d.example.com&target2=https://github.com
+        </code>
+
+        <h3>POST Method (JSON Body)</h3>
+        <p><span class="method">POST</span> <code>/api/batch-update</code> with JSON body</p>
+        <pre style="background:#fff;padding:8px;border-radius:4px;overflow-x:auto;font-size:12px;">
+{
+  "redirect_token": "your_token",
+  "domain_token": "your_token",
+  "entries": [
+    {"name": "test1", "target": "google.com:443"},
+    {"domain": "d.example.com", "target": "https://github.com"}
+  ]
+}</pre>
+
+        <p><strong>Response includes per-entry status and summary statistics</strong></p>
     </div>
 
     <div class="warning">
@@ -716,4 +755,240 @@ func (s *Server) handleRemoveDomain(w http.ResponseWriter, r *http.Request) {
 // Helper function to generate tokens
 func (s *Server) generateToken(length int) (string, error) {
 	return utils.GenerateToken(length)
+}
+
+// handleBatchUpdate 处理批量更新请求 (支持 GET 和 POST)
+func (s *Server) handleBatchUpdate(w http.ResponseWriter, r *http.Request) {
+	// 先检查是否为域名跳转
+	if s.checkDomainRedirect(w, r) {
+		return
+	}
+
+	var entries []models.BatchUpdateEntry
+	var redirectToken, domainToken string
+
+	// 根据请求方法解析参数
+	if r.Method == http.MethodGet {
+		// GET 方式: 使用索引后缀 name1=xxx&target1=xxx&domain2=xxx&target2=xxx
+		entries, redirectToken, domainToken = s.parseGetBatchUpdate(r)
+	} else if r.Method == http.MethodPost {
+		// POST 方式: 使用 JSON body
+		var req models.BatchUpdateRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			s.writeJSONResponse(w, http.StatusBadRequest, models.Response{
+				State:   "error",
+				Message: "Invalid JSON body: " + err.Error(),
+			})
+			return
+		}
+		entries = req.Entries
+		redirectToken = req.RedirectToken
+		domainToken = req.DomainToken
+	} else {
+		s.writeJSONResponse(w, http.StatusMethodNotAllowed, models.Response{
+			State:   "error",
+			Message: "Method not allowed. Use GET or POST",
+		})
+		return
+	}
+
+	// 验证是否有条目
+	if len(entries) == 0 {
+		s.writeJSONResponse(w, http.StatusBadRequest, models.Response{
+			State:   "error",
+			Message: "No entries to update",
+		})
+		return
+	}
+
+	// 处理批量更新
+	results := make([]models.BatchUpdateEntryResult, 0, len(entries))
+	succeeded := 0
+	failed := 0
+
+	for _, entry := range entries {
+		result := models.BatchUpdateEntryResult{
+			Name:   entry.Name,
+			Domain: entry.Domain,
+			Target: entry.Target,
+		}
+
+		// 验证条目
+		if entry.Target == "" {
+			result.Success = false
+			result.Error = "Missing target"
+			failed++
+			results = append(results, result)
+			continue
+		}
+
+		// 验证 target 格式
+		if !s.isValidTarget(entry.Target) {
+			result.Success = false
+			result.Error = "Invalid target format"
+			failed++
+			results = append(results, result)
+			continue
+		}
+
+		// 判断是路径重定向还是域名重定向
+		if entry.Name != "" && entry.Domain == "" {
+			// 路径重定向
+			if redirectToken == "" {
+				result.Success = false
+				result.Error = "Missing redirect_token"
+				failed++
+				results = append(results, result)
+				continue
+			}
+
+			err := s.storage.SetTarget(entry.Name, redirectToken, entry.Target)
+			if err != nil {
+				result.Success = false
+				result.Error = err.Error()
+				failed++
+			} else {
+				result.Success = true
+				succeeded++
+			}
+			results = append(results, result)
+		} else if entry.Domain != "" && entry.Name == "" {
+			// 域名重定向
+			if domainToken == "" {
+				result.Success = false
+				result.Error = "Missing domain_token"
+				failed++
+				results = append(results, result)
+				continue
+			}
+
+			if s.domainStorage == nil {
+				result.Success = false
+				result.Error = "Domain storage not available"
+				failed++
+				results = append(results, result)
+				continue
+			}
+
+			err := s.domainStorage.SetDomainTarget(entry.Domain, domainToken, entry.Target)
+			if err != nil {
+				result.Success = false
+				result.Error = err.Error()
+				failed++
+			} else {
+				result.Success = true
+				succeeded++
+			}
+			results = append(results, result)
+		} else {
+			// 同时指定了 name 和 domain，或者都没指定
+			result.Success = false
+			result.Error = "Must specify either name or domain, not both or neither"
+			failed++
+			results = append(results, result)
+		}
+	}
+
+	// 构建响应
+	response := models.BatchUpdateResponse{
+		State:   "success",
+		Results: results,
+		Summary: models.BatchUpdateSummary{
+			Total:     len(entries),
+			Succeeded: succeeded,
+			Failed:    failed,
+		},
+	}
+
+	// 如果全部失败，设置状态为 error
+	if failed == len(entries) {
+		response.State = "error"
+		response.Message = "All entries failed to update"
+	} else if failed > 0 {
+		response.State = "partial"
+		response.Message = fmt.Sprintf("%d succeeded, %d failed", succeeded, failed)
+	} else {
+		response.Message = "All entries updated successfully"
+	}
+
+	// 记录日志
+	s.logAPIRequest(r, "/api/batch-update", map[string]string{
+		"method": r.Method,
+		"total":  fmt.Sprintf("%d", len(entries)),
+	}, response.State, http.StatusOK)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(response)
+}
+
+// parseGetBatchUpdate 解析 GET 请求的批量更新参数
+// 格式: name1=xxx&target1=xxx&name2=xxx&target2=xxx&domain3=xxx&target3=xxx
+// 返回: entries, redirectToken, domainToken
+func (s *Server) parseGetBatchUpdate(r *http.Request) ([]models.BatchUpdateEntry, string, string) {
+	query := r.URL.Query()
+	entries := make([]models.BatchUpdateEntry, 0)
+
+	// 获取 token
+	redirectToken := query.Get("redirect_token")
+	domainToken := query.Get("domain_token")
+
+	// 查找所有的索引
+	indexMap := make(map[string]bool)
+	for key := range query {
+		// 提取数字后缀
+		if len(key) > 0 {
+			var idx string
+			var prefix string
+
+			// 检查是否匹配 nameXXX 或 domainXXX 或 targetXXX
+			if strings.HasPrefix(key, "name") && len(key) > 4 {
+				idx = key[4:]
+				prefix = "name"
+			} else if strings.HasPrefix(key, "domain") && len(key) > 6 {
+				idx = key[6:]
+				prefix = "domain"
+			} else if strings.HasPrefix(key, "target") && len(key) > 6 {
+				idx = key[6:]
+				prefix = "target"
+			}
+
+			// 验证 idx 是否全为数字
+			if idx != "" && isNumeric(idx) {
+				indexMap[idx] = true
+			}
+			_ = prefix // 避免未使用警告
+		}
+	}
+
+	// 按索引提取条目
+	for idx := range indexMap {
+		name := query.Get("name" + idx)
+		domain := query.Get("domain" + idx)
+		target := query.Get("target" + idx)
+
+		// 只有当 target 存在时才添加条目
+		if target != "" && (name != "" || domain != "") {
+			entries = append(entries, models.BatchUpdateEntry{
+				Name:   name,
+				Domain: domain,
+				Target: target,
+			})
+		}
+	}
+
+	return entries, redirectToken, domainToken
+}
+
+// isNumeric 检查字符串是否全为数字
+func isNumeric(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }
